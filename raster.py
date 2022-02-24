@@ -407,6 +407,8 @@ class RasterTiler():
         # Same for rows with `p_height`.
         cols = np.linspace(bb.left, bb.right, num=width + 1)
         rows = np.linspace(bb.bottom, bb.top, num=height + 1)
+        # the y-axis is flipped in the tms, so we need to flip the rows
+        rows = rows[::-1]
 
         polygons = []
         pixel_rows = []
