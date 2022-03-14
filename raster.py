@@ -1,525 +1,737 @@
-from datetime import datetime
-import logging
+import warnings
 import os
-import re
 
-from coloraide import Color
-import geopandas as gpd
 import numpy as np
-import morecantile
+import geopandas as gpd
 import pandas as pd
-from PIL import Image
+from shapely.geometry import box
 
-from common import get_tile_path, polygon_from_bb
+import rasterio
+from rasterio.io import MemoryFile
+from rasterio.merge import merge
+from rasterio.warp import reproject, Resampling
 
-logger = logging.getLogger(__name__)
 
-
-class RasterTiler():
+class Raster():
     """
-        Creates tiled raster images representing summary statistics for the
-        staged input vector data.
+        Raster is effectively a wrapper around rasterio that simplifies the
+        raster operations required for the viz-raster processing step. A Raster
+        class should not be instantiated directly, but rather through the
+        Raster.from_vector, Raster.from_rasters, or Raster.from_file methods.
+        Once created, the attributes below can be accessed to get information
+        about the raster. The new Raster can then be saved to a file using the
+        write method.
+
+        Attributes
+        ----------
+        profile : dict
+            The rasterio profile for the raster.
+        count : int
+            The number of bands in the raster. This is equal to the number of
+            descriptions in the raster.
+        dtype : numpy.dtype
+            The data type of the raster.
+        driver : str
+            The rasterio driver for the raster.
+        crs : rasterio.crs.CRS
+            The coordinate reference system of the raster.
+        shape : tuple
+            The width and height of the raster.
+        descriptions : list
+            A list of the raster band descriptions.
+        bounds : dict
+            A dictionary of the raster bounds, with keys 'left', 'right',
+            'bottom', and 'top'.
+        data : numpy.ndarray
+            The raster data.
+        summary : dict
+            A dictionary of summary statistics for each band, with keys
+            corresponding to the band descriptions. Within each band, the keys
+            are 'min', 'max', 'mean', 'median', 'std', 'var', and 'sum'.
+        path : str
+            The path to the raster file, if it was opened from or saved to a
+            file.
     """
 
-    def __init__(
-        self,
-        input_dir=None,
-        input_ext='.shp',
-        output_dir=None,
-        output_ext='.png',
-        tms_identifier='WorldCRS84Quad',  # <- Must match staged files
-        max_zoom=13,  # <- This must be the level of the staged files
-        min_zoom=0,
-        tile_size=256,
-        tile_path_structure=['z', 'x', 'y'],  # <- Must match staged files
-        colors=['rgb(102 51 153 / 0.1)', 'lch(85% 100 85)']
+    @classmethod
+    def from_vector(
+        cls,
+        input_path=None,
+        centroid_properties=None,
+        bounds=None,
+        shape=(256, 256),
+        stats=[
+            {
+                'name': 'polygon_count',
+                'weight_by': 'count',
+                'property': 'polygon_count',
+                'aggregation_method': 'sum'
+            },
+            {
+                'name': 'coverage',
+                'weight_by': 'area',
+                'property': 'grid_area_prop',
+                'aggregation_method': 'sum'
+            }
+        ]
     ):
         """
-            Initialise the tiler.
+            Create a Raster class from Polygons in a vector file.
+
+            For a given vector file with Polygons as the geometry, calculate
+            zonal statistics for cells in a grid of specified dimensions, and
+            use these values to create pixels in a Raster.
+
+            Note that statistics are calculated in the CRS of the vector file;
+            measurements of area and centroid location may be slightly
+            incorrect if the CRS is geographic and not projected, and no
+            warning is given. Inaccuracies increase with increasing Polygon
+            size.
 
             Parameters
             ----------
-            input_dir : str
-                The path to the directory containing the staged input vector
-                files. These are the files that have already been run through
-                the PDG viz-staging process.
-            input_ext : str
-                The extension of the input files, including the dot. For
-                example, '.shp'.
-            output_dir : str
-                The directory to save the output to.
-            output_ext : str
-                The extension of the image tiles, including the dot. For
-                example, '.png'.
-            tms_identifier : str
-                The identifier for the TMS system, which must match the
-                identifier used in the PDG viz-staging process. For example,
-                'WorldCRS84Quad'.
-            max_zoom : int
-                The highest-level detail of the tiles to create. This must be
-                the same as the zoom level of the staged files.
-            min_zoom : int
-                The minimum zoom level to process. This is the lowest-level
-                detail of the tiles to create. Must be an integer <= max_zoom
-                and >= 0.
-            tile_size : int
-                The height and width of the resulting tile images, in pixels.
-            tile_path_structure : list
-                A list of strings that represent the directory structure of
-                last segment of the path that uses the x (TileCol), y
-                (TileRow), and z (TileMatrix) indices of the tile. By default,
-                the path will be in the format of
-                {TileMatrix}/{TileCol}/{TileRow}.ext, configured as ['z', 'x',
-                'y'].
-            colors : list
-                A list of strings that represent colors in a linear gradient
-                that will be used to color the tiles based on the calculated
-                summary statistics. The strings can be in any formated
-                supported by the coloraide library. See
-                https://facelessuser.github.io/coloraide/color/ for more
-                information.
+            input_path : str
+                Required. The path to the vector file to be converted into a
+                raster.
+            centroid_properties : tuple of str
+                Optional. If centroids have been pre-calculated for these
+                vectors, then the name the two properties in the vector data
+                that contain the x-coordinates and y-coordinates, respectively,
+                of the centroids for each Polygon. If set to None, then the
+                centroids are calculated from the geometry. Centroid
+                coordinates are assumed be in the same CRS as the Polygon
+                geometry of the vector file.
+            bounds : dict
+                A dictionary with keys 'left', 'right', 'bottom', and 'top'
+                that specify the bounding box of the raster. If set to None,
+                then the total bounds of the GeoDataFrame are used. The
+                bounding box may be smaller or larger than the source vector
+                data.
+            shape : tuple
+                A tuple of length 2 that specifies the dimensions of the raster
+                in the form (height, width). The default is (256, 256).
+            stats : list
+                Specification of how to compute the values for each pixel in
+                the new raster data. Each item in the list represents a
+                statistic to be calculated and a band in the output raster. A
+                list of dictionaries with the following keys:
+                    name : str
+                        The name of the statistic. Can be anything but must be
+                        unique.
+                    weight_by : str
+                        The weighting method for the statistic. Options are
+                        'count' and 'area'. 'count' indicates that the
+                        statistic is calculated based on the number of polygons
+                        in each cell (location is identified by the centroid of
+                        the polygon). 'area' indicates that the statistic is
+                        calculated based on the area of the polygons that cover
+                        each cell.
+                    property : str
+                        The name of the property in the vector file be used for
+                        the statistic. Besides the properties that are already
+                        available in the vector file, the following three are
+                        also available:
+                            'polygon_count' : The number of polygons in the
+                                cell/pixel. (Only available if weight_by is
+                                'count')
+                            'grid_area' : The area of the polygon
+                                that falls within a given cell/pixel, in the
+                                units of the CRS. (Only available if weight_by
+                                is 'area')
+                            'grid_area_prop' : Same as
+                                'grid_area', but divided by the
+                                area of the cell/pixel. (Only available if
+                                weight_by is 'area')
+                    aggregation_method : str
+                        The function to be applied to the property. The vector
+                        data will first be grouped into cells, then the
+                        aggregation method will be used to summarize the given
+                        property in the cell. Method can be any method allowed
+                        in the 'func' property of the panda's aggregate method,
+                        e.g. 'sum', 'count', 'mean', etc.
+
+            Returns
+            -------
+            raster : Raster
+                A new Raster object
         """
-        self.input_dir = input_dir
-        self.input_ext = input_ext
-        self.output_dir = output_dir
-        self.output_ext = output_ext
-        self.tms_identifier = tms_identifier
-        self.max_zoom = max_zoom
-        self.min_zoom = min_zoom
-        self.width = tile_size
-        self.height = tile_size
-        self.tile_path_structure = tile_path_structure
 
-        self.set_palette(colors)
+        r = cls()
 
-        # Create the TileMatrixSet for the output tiles
-        self.tms = morecantile.tms.get(tms_identifier)
+        r.centroid_properties = centroid_properties
+        r.bounds = bounds
+        r.shape = shape
+        r.stats = stats
 
-        # Set a variable that will hold the list of next level tiles to create
-        self.parent_tiles_to_make = []
-        self.current_zoom = self.max_zoom
+        r.__set_and_check_gdf(input_path)
+        r.__set_grid()
+        r.__calculate_stats()
+        raster = r.__create_raster_from_stats_df()
 
-    def set_palette(self, colors):
+        # Reset the properties saved to this class during the above processing
+        # steps
+        r.centroid_properties = None
+        r.bounds = None
+        r.shape = None
+        r.stats = None
+        r.gdf = None
+        r.rows = None
+        r.cols = None
+        r.cell_area = None
+        r.stats_df = None
+
+        r.update_properties(raster)
+
+        return r
+
+    @classmethod
+    def from_rasters(
+        cls,
+        rasters,
+        resampling_methods=('nearest'),
+        shape=None,
+        bounds=None,
+    ):
         """
-            Create the color palette for the image and set it on this object.
-            The palette is a flattened list rgb values between 0 and 255, used
-            for the PIL putpalette function.
-        """
-        # This creates a function that takes a value between 0 and 1 and
-        # returns a Color object. Required for the get_rgba function.
-        self.gradient = Color(colors[0]).interpolate(colors[1:], space='lch')
+            Create a composite raster from a list of raster input paths. The
+            new raster will be reshaped to the dimensions and bounding box set
+            by the `shape` and `bounds` parameters, respectively. The raster
+            will be resampled using the methods specified in the
+            resampling_methods parameter (one method for each band).
 
-        # Create a palette list for the PIL putpalette function. Because we are
-        # creating RGBA images, the list should be 1024 elements long.
-        pal_size = 256
-        pal_values = [x / pal_size for x in range(pal_size)]
-        pal_rgba = [self.get_rgba(i) for i in pal_values]
-        pal_flat = [item for sublist in pal_rgba for item in sublist]
-        self.palette = pal_flat
+            All of the input rasters must have the same number of bands and the
+            same CRS. If a raster path does not exist, a warning is given and
+            the raster is skipped. If none of the provided rasters exist, a
+            ValueError is raised.
 
-    def get_rgba(self, val):
+        Parameters
+        ----------
+        rasters : list of str
+            List paths to raster files. Rasters must all be in the same
+            coordinate reference system and have the same number/type of bands.
+        resampling_methods : list of str
+            List of resampling methods to be applied to the rasters, one for
+            each band in the rasters. If there are fewer methods than bands,
+            the last method is used for all remaining bands. See rasterio's
+            Resampling Methods for list of the available methods.
+        shape : tuple
+            A tuple of length 2 that specifies the dimensions of the output
+            raster in the form (height, width). The default is (256, 256).
+        bounds : dict
+            A dictionary with keys 'left', 'right', 'bottom', and 'top' that
+            specify the bounding box of the output raster (it may be smaller or
+            greater than the bounding box of the merged datasets).
+
+        Returns
+        -------
+        raster : Raster
+            The rasterio DatasetReader object for the output raster. Note that
+            when finished with the raster, it should be closed using
+            `raster.close()`.
         """
-            Returns a colour based on the tiler's colour palette, given a value
-            between 0 and 1. The colour is represented as a list of four values
-            giving the intensity of red, green, blue, and alpha respectively,
-            each intensity between 0 and 255.
+
+        r = cls()
+
+        r.shape = shape
+        r.bounds = bounds
+
+        rasters = r.__get_and_check_rasters(rasters)
+        raster = r.__merge_and_resample(rasters, resampling_methods)
+
+        r.update_properties(raster)
+
+        return r
+
+    @classmethod
+    def from_file(cls, filename):
+        """
+            Create a Raster from a saved raster file.
+        
+            Parameters
+            ----------
+            filename : str
+                The path to the raster file.
+            
+            Returns
+            -------
+            raster : Raster
+                The rasterio DatasetReader object for the raster. 
+        """
+
+        r = cls()
+        raster = rasterio.open(filename)
+        r.update_properties(raster)
+        return r
+
+    def update_properties(self, raster, close=True):
+        """
+            Take attributes of a rasterio DatasetReader object and update the
+            properties of this Raster object, then close the DatasetReader.
 
             Parameters
             ----------
-            val : float
-                A value between 0 and 1.
-        """
-        col = self.gradient(val)
-        # to_string is the best method to get values into 255
-        col_str = col.convert('srgb').to_string(precision=3, alpha=True)
-        # parse the string for rgba values
-        rgba = list(float(i) for i in re.findall(r'[\d\.]+', col_str))
-        # Alpha should be 255 as well
-        rgba[3] = rgba[3] * 255
-        # Round rgba to integers
-        rgba = [int(i) for i in rgba]
-        return rgba
-
-    def make_tiles(self):
-        """
-            Create raster tiles from all of the staged vector files in the
-            input directory.
+            raster : rasterio DatasetReader
+                The rasterio DatasetReader object to be used to update the
+                properties of this Raster object.
+            close : bool
+                If True, the rasterio DatasetReader object will be closed after
+                the properties are updated. Default is True.
         """
 
-        # Create the output directory if it doesn't exist
-        if not os.path.exists(self.output_dir):
-            os.mkdir(self.output_dir)
+        self.profile = raster.profile
+        self.count = self.profile['count']
+        self.dtype = self.profile['dtype']
+        self.driver = self.profile['driver']
+        self.crs = self.profile['crs']
 
-        # Keep a list of the tiles created
-        tile_created = []
+        self.shape = raster.shape
+        self.descriptions = raster.descriptions
 
-        # This function is called once for each level of zoom. Check whether we
-        # are making the highest level zoom tiles directly from the input
-        # files, or whether we are making composite tiles from previously saved
-        # pixel values
-        if self.current_zoom == self.max_zoom:
-            # Make the tiles for the highest level of zoom directly from the
-            # (staged) input files.
-            for path in self.get_input_paths():
-                # Read in the data
-                gdf = self.get_data(path)
-                # Determine which tile we are working with
-                tile = self.parse_tile_string(gdf.tile[0])
-                pixel_values = self.get_pixel_values_from_gdf(gdf, tile)
-                self.save_tile(pixel_values, tile)
-                tile_created.append(tile)
+        self.bounds = {}
+        self.bounds['left'] = raster.bounds.left
+        self.bounds['right'] = raster.bounds.right
+        self.bounds['bottom'] = raster.bounds.bottom
+        self.bounds['top'] = raster.bounds.top
+
+        self.data = raster.read()
+
+        self.summary = {}
+        for i in range(self.count):
+            description = self.descriptions[i]
+            values = self.data[i]
+            self.summary[description] = {
+                'min': values.min(),
+                'max': values.max(),
+                'mean': values.mean(),
+                'median': np.median(values),
+                'std': values.std(),
+                'var': values.var(),
+                'sum': values.sum()
+            }
+
+        if raster.files:
+            self.path = raster.files[0]
         else:
-            # Make tiles from the previously processed zoom level
-            for tile in self.parent_tiles_to_make:
-                pixel_values = self.get_pixel_values_from_children(tile)
-                if pixel_values is not None:
-                    self.save_tile(pixel_values, tile)
-                    tile_created.append(tile)
+            self.path = None
 
-        # Clear the list of parent tiles to make
-        self.parent_tiles_to_make = []
+        if close:
+            raster.close()
 
-        # Set the parent tiles to make from the tiles just created
-        next_zoom = self.current_zoom - 1
-        if (next_zoom >= self.min_zoom) and (next_zoom >= 0):
-            for tile in tile_created:
-                self.parent_tiles_to_make += self.get_parent_tiles(tile)
-            # Make sure all the parent tiles we listed are unique
-            self.parent_tiles_to_make = list(
-                set(self.parent_tiles_to_make)
-            )
-            self.current_zoom = next_zoom
-            self.make_tiles()
-
-    def get_input_paths(self):
+    def write(self, output_path=None):
         """
-            Get the paths for all of the input data files
+            Write a raster to a geotiff file.
+
+        Parameters
+        ----------
+        output_path : str
+            The path to the output file. If the file already exists, it will be
+            overwritten. If the directory does not exist, it will be created.
         """
-        # Log the start of the process, the input directory, and time how long
-        # it takes to get the paths
-        logger.info(
-            f'Getting vector file input paths from directory: {self.input_dir}'
-        )
-        start_time = datetime.now()
 
-        input_paths = []
-        for root, dirs, files in os.walk(self.input_dir):
-            for file in files:
-                if file.endswith(self.input_ext):
-                    path = os.path.join(root, file)
-                    input_paths.append(path)
+        dirname = os.path.dirname(output_path)
+        if not os.path.exists(dirname):
+            os.makedirs(dirname)
 
-        # Log the end time, the total time, and the number of paths found
-        logger.info(
-            f'Found {len(input_paths)} paths in {datetime.now() - start_time}'
-        )
+        prof = self.profile
 
-        self.input_paths = input_paths[0]
-        return input_paths
+        with rasterio.open(output_path, 'w', **prof) as dst:
+            dst.write(self.data)
+            dst.descriptions = self.descriptions
 
-    def get_tile_path(self, tile=None, type='input'):
+        self.path = output_path
+
+    def grid_as_gdf(self):
         """
-            Returns the path to the tile.
-
-            Parameters
-            ----------
-            tile : morecantile.Tile
-                The tile to get the path for.
-            type : str
-                The type of path to get. Can be 'input', 'output', or
-                'pixel_values'.
-        """
-        if type == 'input':
-            ext = self.input_ext
-            prefix = self.input_dir
-        elif type == 'output':
-            ext = self.output_ext
-            prefix = self.output_dir
-        elif type == 'pixel_values':
-            ext = '.csv'
-            prefix = os.path.join(self.output_dir, 'pixel_values')
-        return get_tile_path(
-            prefix=prefix,
-            tms=self.tms,
-            tile=tile,
-            path_structure=self.tile_path_structure,
-            ext=ext
-        )
-
-    def get_data(self, path=None):
-        """
-            Reads in a GeoDataFrame from a file.
-
-            Parameters
-            ----------
-            path : str
-                The path to the file.
+            Create a GeoDataFrame representing the grid defines the raster. The
+            GDF comprises the grid cell geometry and the row and column
+            indices. This is useful for testing and visualizing the grid.
 
             Returns
             -------
-            data : GeoDataFrame
-                The data read in from the file.
-        """
-        if path is None:
-            return
-        start_time = datetime.now()
-        gdf = gpd.read_file(path)
-        logger.info(f'Read data in {datetime.now() - start_time}')
-        return gdf
-
-    def parse_tile_string(self, tile_str):
-        """
-            Parse the morecantile tile string to get the x, y, and z values.
-            Takes a string in the format Tile(x=6, y=10, z=4) and returns the
-            x, y, and z values as a list.
-
-            Parameters
-            ----------
-            tile_str : str
-                A string in the format Tile(x=6, y=10, z=4) as used by the
-                morecantile library.
-
-            Returns
-            -------
-            list
-                A list of the x, y, and z values.
-        """
-        regex = re.compile(r'(?<=x=)\d+|(?<=y=)\d+|(?<=z=)\d+')
-        x, y, z = [int(i) for i in regex.findall(tile_str)]
-        tile = morecantile.Tile(x, y, z)
-        return tile
-
-    def get_pixel_values_from_gdf(self, gdf, tile):
-        """
-            Summarize a GeoDataFrame and return pixel values that can be used
-            to create a raster image. Currently the pixel values represent the
-            relative area covered by polygons in each pixel. Eventually this
-            the summary statistic that is calculated will be configurable.
-
-            Parameters
-            ----------
-            gdf : GeoDataFrame
-                The GeoDataFrame containing the pixel values.
-            tile : morecantile.Tile
-                The tile that the gdf represents.
-
-            Returns
-            -------
-            pixel_values : numpy.ndarray
-                The pixel values for the tile
-        """
-        # Create a grid for the tile
-        grid = self.make_pixel_grid(tile)
-        # Calculate the area per cell.
-        # TODO: Make the summary statistic configurable
-        pixel_values = self.calculate_area_per_cell(grid, gdf)
-        return pixel_values
-
-    def get_pixel_values_from_children(self, tile):
-        """
-            Get the pixel values for a tile based the mean of the pixel values
-            from the children tiles.
-
-            Parameters
-            ----------
-            tile : morecantile.Tile
-                The tile to get the pixel values for.
-
-            Returns
-            -------
-            pixel_values : pandas.DataFrame
-                The pixel values for the tile, represented as a DataFrame with
-                a column for pixel_row and pixel_col indices, as well as a
-                column for the calculated pixel value.
+            gdf : geopandas.GeoDataFrame
+                A GeoDataFrame with the grid cell geometry and row and column
+                indices.
         """
 
-        # Identify the four sub-tiles that make up this tile
-        child_tiles = self.get_child_tiles(tile)
-        pixel_values = None
+        self.__set_grid()
 
-        for child_tile in child_tiles:
+        column_values = {
+            'geometry': [], 'row_index': [], 'col_index': [],
+        }
 
-            # Get the previously pixel values (if any)
-            path = self.get_tile_path(child_tile, 'pixel_values')
+        for i in range(len(self.rows) - 1):
+            for j in range(len(self.cols) - 1):
+                column_values['geometry'].append(box(
+                    minx=self.cols[j], maxx=self.cols[j + 1],
+                    miny=self.rows[i], maxy=self.rows[i + 1]
+                ))
+                column_values['row_index'].append(i)
+                column_values['col_index'].append(j)
 
-            if os.path.exists(path):
+        grid = gpd.GeoDataFrame(column_values, crs=self.gdf.crs)
 
-                sub_pixel_values = pd.read_csv(path)
+        self.rows = None
+        self.cols = None
+        self.cell_area = None
 
-                # Identify the position of this tile within the parent; add the
-                # tile width and tile height to pixel column and row indices as
-                # required for downsampling.
-                if child_tile.x % 2 != 0:
-                    sub_pixel_values['pixel_col'] += self.width
-                if child_tile.y % 2 != 0:
-                    sub_pixel_values['pixel_row'] += self.height
-
-                # Add the pixel values to the composite
-                if pixel_values is None:
-                    pixel_values = sub_pixel_values
-                else:
-                    pixel_values = pd.concat(
-                        (pixel_values, sub_pixel_values), axis=0
-                    )
-
-        # Downsample the pixel values using the average. Combine every two
-        # pixel rows and every two pixel cols.
-        pixel_values['pixel_row'] = [int(i // 2)
-                                     for i in pixel_values['pixel_row']]
-        pixel_values['pixel_col'] = [int(i // 2)
-                                     for i in pixel_values['pixel_col']]
-        # TODO: Make the summary statistic configurable. For now, just use the
-        # mean. For count data, use the sum.
-        pixel_values = pixel_values.groupby(
-            ['pixel_row', 'pixel_col'], as_index=False
-        ).agg({'frac_covered': 'mean'})
-
-        return pixel_values
-
-    def make_pixel_grid(self, tile):
-        """
-            Makes a grid that covers the area of a tile. The grid is
-            represented as a GeoDataFrame where each row has a pixel column
-            index, pixel row index, and a square polygon geometry that covers
-            what will be a single pixel in the eventual raster image. The size
-            of the grid is determined by the tile size configured on this
-            tiler.
-
-            Parameters
-            ----------
-            tile : morecantile.Tile
-                The tile to create the pixel grid for.
-
-            Returns
-            -------
-            pixel_grid : geopandas.GeoDataFrame
-                The pixel grid for the tile.
-        """
-
-        width = self.width
-        height = self.height
-
-        # Bounding box of the tile
-        bb = self.tms.bounds(tile)
-
-        # np.linspace divides the tile between left and right into
-        # `p_width` equal spaces. Returns the array of coordinates in cols
-        # Same for rows with `p_height`.
-        cols = np.linspace(bb.left, bb.right, num=width + 1)
-        rows = np.linspace(bb.bottom, bb.top, num=height + 1)
-        # the y-axis is flipped in the tms, so we need to flip the rows
-        rows = rows[::-1]
-
-        polygons = []
-        pixel_rows = []
-        pixel_cols = []
-        for i in range(0, width):
-            for j in range(0, height):
-                # create a polygon
-                polygon = polygon_from_bb(north=rows[j], south=rows[j + 1],
-                                          east=cols[i], west=cols[i + 1])
-                # add the polygon to the list of polygons
-                polygons.append(polygon)
-                # add the pixel coordinates to the list of pixel coordinates
-                pixel_rows.append(j)
-                pixel_cols.append(i)
-
-        grid = gpd.GeoDataFrame({
-            'geometry': polygons,
-            'pixel_row': pixel_rows,
-            'pixel_col': pixel_cols
-        }).set_crs(self.tms.crs)
         return grid
 
-    def calculate_area_per_cell(self, grid, gdf):
+    def __set_and_check_gdf(self, input_path=None):
         """
-            Calculate the area of each cell in the grid.
+            Open the vector file as a GeoPandas GeoDataFrame, and set it on the
+            class as a property called 'gdf' for other methods to use. Check
+            that the vector file contains only polygons, that the centroid
+            properties exist, and that there is a CRS.
 
             Parameters
             ----------
-            grid : GeoDataFrame
-                The grid of pixels.
-            gdf : GeoDataFrame
-                The data to calculate the area of.
+            input_path : str
+                The path to the vector file to be converted into a raster.
+        """
+
+        # Give error if no GDF is provided.
+        if not isinstance(input_path, str):
+            raise ValueError(
+                'An input path (string) for a vector must be provided.')
+
+        # Read the GDF.
+        self.gdf = gpd.read_file(input_path)
+        gdf = self.gdf
+
+        # Check that the GDF has a CRS
+        if gdf.crs is None:
+            raise ValueError('The input vector file must have a CRS.')
+
+        # Check that the geometry column is a Polygon.
+        if any(gdf.geometry.geom_type != 'Polygon'):
+            raise ValueError(
+                'The vector file must comprise only Polygon geometries.')
+
+        # Check that the centroid columns exist in the data frame, otherwise
+        # set these column names to None (and compute them later)
+        if self.centroid_properties is not None:
+            x_prop = self.centroid_properties[0]
+            y_prop = self.centroid_properties[1]
+            if x_prop not in gdf.columns or y_prop not in gdf.columns:
+                # Give a warning if the centroid column is not in the data
+                # frame.
+                warnings.warn(
+                    'At least one of the centroid properties do not exist in '
+                    'the vector data. The centroids will be computed from the '
+                    'geometry.'
+                )
+                self.centroid_properties = None
+
+    def __set_grid(self):
+        """
+            Calculates the array row and column fences, as well as the
+            cell/pixel area, and sets these values on the class. Used to
+            calculate the statistics for the raster. The row and column fences
+            are based on the bounding box and the given height and width of the
+            output raster. If a bounding box is not set, then set the bounding
+            box to the bounding box of the vector file.
+        """
+
+        # Calculate the bounding box of the grid. If bounding box is not
+        # provided, use the total bounds of the GDF.
+        if self.bounds is None:
+            bb = {}
+            gdf_bb = self.gdf.total_bounds
+            bb['left'], bb['bottom'], bb['right'], bb['top'] = gdf_bb
+            self.bounds = bb
+
+        # Calculate the number of rows and columns.
+        self.rows = np.linspace(
+            self.bounds['bottom'], self.bounds['top'], self.shape[0] + 1
+        )
+        # Reverse the rows so that the first row is the bottom row.
+        self.rows = self.rows[::-1]
+        self.cols = np.linspace(
+            self.bounds['left'], self.bounds['right'], self.shape[1] + 1
+        )
+
+        # Calculate the area of a single grid cell. (Assume they are approx all
+        # equal area)
+        self.cell_area = abs((self.rows[0] - self.rows[1]) *
+                             (self.cols[1] - self.cols[0]))
+
+    def __calculate_stats(self):
+        """
+            Calculate the statistics for each cell/pixel. Set the resulting
+            data frame as a property called 'stats_df' on the class. The
+            stats_df is a data frame with 'row_index', 'col_index' columns plus
+            a column for each statistic in the 'stats' list.
+        """
+
+        count_stats = [x for x in self.stats if x['weight_by'] == 'count']
+        area_stats = [x for x in self.stats if x['weight_by'] == 'area']
+
+        stats_df = None
+
+        if(len(count_stats) > 0):
+            # Create a dataframe with the row and column indices are assigned
+            # to the polygons based on the location of their centroid.
+            centroid_gdf = self.__grid_by_centroid()
+            # Arrange the stats as a named tuple for the pandas agg method
+            aggDict = {}
+            for stat in count_stats:
+                aggDict[stat['name']] = (
+                    stat['property'], stat['aggregation_method'])
+
+            count_stats_df = centroid_gdf.groupby(
+                ['row_index', 'col_index'], as_index=False
+            ).agg(**aggDict).reset_index(drop=True)
+
+            stats_df = count_stats_df
+
+        if(len(area_stats) > 0):
+            # Create a second dataframe where all polygons are sliced along the
+            # grid lines, and sliced polygons are assigned to the grid cell
+            # they fall within.
+            area_gdf = self.__grid_by_area()
+            aggDict = {}
+            for stat in area_stats:
+                aggDict[stat['name']] = (
+                    stat['property'], stat['aggregation_method'])
+            area_stats_df = area_gdf.groupby(
+                ['row_index', 'col_index'], as_index=False
+            ).agg(**aggDict).reset_index(drop=True)
+
+            self.area_stats_df = area_stats_df
+
+            if(stats_df is None):
+                stats_df = area_stats_df
+            else:
+                stats_df = stats_df.merge(
+                    area_stats_df, on=[
+                        'row_index', 'col_index'], how='outer').reset_index(
+                    drop=True)
+                # Replace NA values that resulted from the merge with 0 (i.e.
+                # where there is polygon coverage but no centroids, the
+                # centroid count should be 0)
+                stats_df.fillna(0, inplace=True)
+
+        self.stats_df = stats_df
+
+    def __grid_by_centroid(self):
+        """
+            Assign each polygon to a grid cell based on the centroid location.
+            Calculate the centroid of each polygon first, if coordinates are
+            not provided.
 
             Returns
             -------
-            grid : GeoDataFrame
-                The grid with the area of each cell added.
+            centroid_gdf : GeoPandas GeoDataFrame
+                A copy of the input vector GeoDataFrame with three new columns:
+                row_index and col_index, which indicates the cell/pixel the
+                polygon's centroid is located within, and polygon_count, which
+                always equals 1 and can be used to sum the number of polygons
+                within a cell/pixel during the aggregation step.
         """
 
-        start_time = datetime.now()
+        # Don't modify the original GDF
+        c_gdf = self.gdf.copy()
+        # Add a generic column that we can use to sum the number of polygons
+        # (otherwise, must use count)
+        c_gdf['polygon_count'] = 1
+        x_prop = None
+        y_prop = None
+        cent_props = self.centroid_properties
 
-        # keep only the 'geometry' column of gdf
-        geoms = gdf[['geometry']]
-        # Slice the polygons where they intersect with the grid lines, and
-        # assign the pixel row and pixel column to each resulting polygon
-        geoms = geoms.overlay(grid, how='intersection')
-        # Get the area of the smaller polygons, as a fraction of the grid cell
-        # size. By definition each grid cell is the same size.
-        cell_area = grid.geometry[0].area
-        geoms['frac_covered'] = geoms.area / cell_area
-        # Calculate the total fraction covered per grid cell
-        summary = geoms.groupby(
-            ['pixel_row', 'pixel_col'], as_index=False
-        ).agg({'frac_covered': 'sum'})
-        summary['pixel_row'] = summary['pixel_row'].astype(np.int64)
-        summary['pixel_col'] = summary['pixel_col'].astype(np.int64)
+        if isinstance(cent_props, tuple) or isinstance(cent_props, list):
+            x_prop = self.centroid_properties[0]
+            y_prop = self.centroid_properties[1]
 
-        logger.info(
-            f'Calculated area per cell in {datetime.now() - start_time}'
-        )
+        if isinstance(x_prop, str) and isinstance(y_prop, str):
+            centroids_x = c_gdf[x_prop]
+            centroids_y = c_gdf[y_prop]
+        else:
+            # Catch the UserWarning that is raised if centroid is calculated
+            # using the a non-projected coordinate system.
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', UserWarning)
+                centroids = c_gdf.centroid
+            centroids_x = centroids.x
+            centroids_y = centroids.y
 
-        return summary
+        # Identify which grid cell each point belongs within.
+        c_gdf['col_index'] = np.searchsorted(self.cols, centroids_x) - 1
+        # Reverse arrays because rows are in descending order by
+        # np.searchsorted requires ascending order.
+        c_gdf['row_index'] = np.searchsorted(
+            -self.rows, -centroids_y) - 1
 
-    def array_from_df(
+        # Drop any rows that fall outside the grid.
+        c_gdf = c_gdf[(c_gdf['row_index'] >= 0) &
+                      (c_gdf['row_index'] < self.shape[0]) &
+                      (c_gdf['col_index'] >= 0) &
+                      (c_gdf['col_index'] < self.shape[1])]
+
+        c_gdf.reset_index(inplace=True, drop=True)
+
+        return c_gdf
+
+    def __grid_by_area(self):
+        """
+            Slice each polygon in the input vector GDF along the grid lines,
+            and assign the sliced polygons to the grid cell they fall within.
+            Add a column for the area of each of the new polygons.
+
+            Returns
+            -------
+            area_gdf : geopandas.GeoDataFrame
+                A GeoDataFrame with the same columns as the original GDF, plus
+                a column for the area of each polygon. The GDF will have the
+                same number of rows or more than the original, depending on if
+                the polygons are split.
+        """
+
+        minx = self.cols[0]
+        maxx = self.cols[-1]
+        miny = self.rows[-1]
+        maxy = self.rows[0]
+
+        crs = self.gdf.crs
+
+        row_geoms = []
+        col_geoms = []
+
+        for i in range(len(self.rows) - 1):
+            row_geoms.append(box(
+                minx=minx, maxx=maxx,
+                miny=self.rows[i], maxy=self.rows[i + 1]
+            ))
+
+        for i in range(len(self.cols) - 1):
+            col_geoms.append(box(
+                minx=self.cols[i], maxx=self.cols[i + 1],
+                miny=miny, maxy=maxy
+            ))
+
+        gdf_grid_rows = gpd.GeoDataFrame(geometry=row_geoms, crs=crs)
+        gdf_grid_rows['row_index'] = gdf_grid_rows.index
+        gdf_grid_cols = gpd.GeoDataFrame(geometry=col_geoms, crs=crs)
+        gdf_grid_cols['col_index'] = gdf_grid_cols.index
+
+        # Intersecting by rows, then by columns is at least 3x faster than
+        # intersecting by grid cells and gives the same result.
+        area_gdf_rows = self.gdf.overlay(gdf_grid_rows, how='intersection')
+        area_gdf = area_gdf_rows.overlay(gdf_grid_cols, how='intersection')
+
+        # Catch the UserWarning that is raised area is calculated using the a
+        # non-projected coordinate system.
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', UserWarning)
+            area_gdf['grid_area'] = area_gdf.area
+
+        area_gdf['grid_area_prop'] = area_gdf['grid_area'] / self.cell_area
+
+        area_gdf.reset_index(inplace=True, drop=True)
+
+        return area_gdf
+
+    def __create_raster_from_stats_df(self):
+        """
+            Create a raster in memory from the stats_df.
+
+            Returns
+            -------
+            dataset: rasterio.io.DatasetReader
+                A rasterio dataset reader object that can be used to read the
+                raster data, or written to a file, etc.
+        """
+
+        stats_df = self.stats_df
+
+        # Get the minimum int dtype for all columns TODO: Set dtype for each
+        # stat. Or allow user to set dtype for each stat.
+        all_columns = stats_df.columns
+        index_columns = ['row_index', 'col_index']
+        values_columns = [x for x in all_columns if x not in index_columns]
+        all_values = np.concatenate(
+            [stats_df[col].values for col in values_columns])
+        dtype = np.min_scalar_type(all_values)
+
+        # Convert the statistics data frame to a dict of arrays. ensure the
+        # arrays are in the same order as that stats config
+        stats_dict = {}
+        for column_name in values_columns:
+            stats_dict[column_name] = self.__as_array(stats_df, column_name)
+
+        stats_names_ordered = [x['name'] for x in self.stats]
+        # count is the number of arrays in the stats dict == the number of
+        # bands
+        count = len(stats_dict)
+        # Use each array in the statistics dict to create a band in a new
+        # raster. Keep the raster in memory to return.
+        crs = self.gdf.crs.to_wkt()
+        transform = rasterio.transform.from_bounds(
+            self.bounds['left'],
+            self.bounds['bottom'],
+            self.bounds['right'],
+            self.bounds['top'],
+            width=self.shape[1],
+            height=self.shape[0])
+
+        memfile = MemoryFile()
+        with memfile.open(
+            driver='GTiff',
+            width=self.shape[1],
+            height=self.shape[0],
+            count=count,
+            dtype=dtype,
+            crs=crs,
+            transform=transform
+        ) as dataset:
+            # Keep band number in the same order as the stats config
+            for key in stats_dict.keys():
+                band_index = stats_names_ordered.index(key) + 1
+                data_array = stats_dict[key]
+                dataset.write(data_array, band_index)
+                dataset.set_band_description(band_index, key)
+        return memfile.open()
+
+    def __as_array(
         self,
         df=None,
-        rows_column='row',
-        columns_column='column',
-        values_column='values',
-        n_rows=256,
-        n_cols=256
+        values_column=None
     ):
         """
-        Arguments:
-        ----------
-        df : pd.DataFrame
+            Convert a dataframe into a 2D array that is the size of the grid
+            specified in this class. Grid cells without any data will be filled
+            with 0.
 
-        rows_column : str
+            Parameters
+            ----------
+            df : pd.DataFrame
+                Dataframe with at least 3 columns: a column with the row
+                indices, a column with the column indices, and a column with
+                the values to return as an array.
+            values_column : str
+                Name of the column with the values to return as an array. If
+                None, the values_column is assumed to be the last column in the
+                dataframe.
 
-        columns_column : str
-
-        n_rows : int
-
-        n_cols: int
-
-        example dataframe:
-
-            row  column    values
-            0    0       0 -1.390359
-            1    0       1 -2.283228
-            2    1       0  0.166112
-            3    2       0  0.631024
-            4    2       1  0.774443
-            5    2       2  1.045875
-
-        example_output:
-        >>> array_from_df(df, n_rows=4, n_cols=4)
-        array([[ 1.98124795, -0.43509489,  0.        ,  0.        ],
-            [-0.4570742 ,  0.        ,  0.        ,  0.        ],
-            [ 0.86123529,  0.79919129, -1.86013893,  0.        ],
-            [ 0.        ,  0.        ,  0.        ,  0.        ]])
-
+            Returns
+            -------
+            numpy.ndarray
+                Array of width grid_width and height grid_height with the
+                values from df.
         """
+
+        n_rows = len(self.rows) - 1
+        n_cols = len(self.cols) - 1
+
+        if values_column is None:
+            values_column = df.columns[-1]
 
         all_indices = pd.MultiIndex.from_product(
             [range(n_rows), range(n_cols)],
-            names=[rows_column, columns_column],
+            names=['row_index', 'col_index'],
         )
 
         a = (
-            df.set_index([rows_column, columns_column])[values_column]
+            df.set_index(['row_index', 'col_index'])[values_column]
             .reindex(all_indices, fill_value=0)
             .sort_index()
             .values.reshape((n_rows, n_cols))
@@ -527,192 +739,145 @@ class RasterTiler():
 
         return a
 
-    def to_unit8(self, values, min, max):
+    def __get_and_check_rasters(self, rasters):
         """
-            Takes an array of values and scales it to 0-255. The min and max
-            values are used to first rescale the values to the range [0, 1].
-            Any numbers greater than the max will be set to 255 in the output,
-            and any numbers less than the min will be set to 0.
+            Take paths to rasters and return a list of
+            rasterio.io.DatasetReader objects. Check that the rasters have the
+            same number of bands, and the same CRS (required), and that the
+            band descriptions at all the same (give warning if not).
 
             Parameters
             ----------
-            values : numpy.array
-                The array of values to be scaled.
-
-            max : float
-                The maximum value in the array.
-
-            min : float
-                The minimum value in the array.
+            rasters : list of str
+                List of rasters filenames/paths to check.
 
             Returns
             -------
-            numpy.array
-                An array of np.uint8 values.
+            rasters : list of rasterio.io.DatasetReader objects
+                List of rasters
         """
-        # Normalize the array so that it's between 0 and 1
-        values = (values - min) / (max - min)
-        # Make sure the array is between 0 and 255
-        values = np.where(values > 1, 1, values)
-        values = np.where(values < 0, 0, values)
-        # Convert the array to uint8
-        values = values * 255
-        values = values.astype(np.uint8)
-        return values
 
-    def save_tile(self, pixel_values, tile):
+        rasters = [r for r in rasters if r is not None]
+
+        # Check if all elements in the rasters array are strings
+        if(all(isinstance(x, str) for x in rasters)):
+            paths = rasters.copy()
+            rasters = []
+            for path in paths:
+                try:
+                    rasters.append(rasterio.open(path))
+                except FileNotFoundError:
+                    # give warnings
+                    warnings.warn('Raster file not found: {}'.format(path))
+                    pass
+        else:
+            raise ValueError('Rasters must be a list of paths')
+
+        # Check that the array of rasters is not empty
+        if len(rasters) == 0:
+            raise ValueError('No rasters provided')
+
+        # Can't proceed if any element in the rasters array are not
+        # rasterio.io.DatasetReader objects
+        if(not all(isinstance(x, rasterio.io.DatasetReader) for x in rasters)):
+            raise TypeError(
+                'There was a problem opening at least one of the rasters.')
+
+        # Reference raster
+        ref = rasters[0]
+
+        # Check if all elements in the rasters array have the same CRS
+        if(not all(x.crs == ref.crs for x in rasters)):
+            raise ValueError(
+                'All rasters must have the same CRS.')
+
+        # Check if all elements in the rasters array have the same band count
+        if(not all(x.count == ref.count for x in rasters)):
+            raise ValueError(
+                'All rasters must have the same band count.')
+
+        # Check if all elements in the rasters array have the same band names.
+        # Warn that band names from the first will be used
+        if(not all(x.descriptions == ref.descriptions for x in rasters)):
+            warnings.warn(
+                'Not all rasters have the same band names. Using band names ' +
+                ' from the first raster.'
+            )
+
+        return rasters
+
+    def __merge_and_resample(self, rasters, resampling_methods):
         """
-            Save the pixel values to a CSV file, convert them to an image array
-            and save the result as a raster image.
+            Merge the rasters into a single raster, resample the merged raster
+            to the specified shape, and return the resampled raster.
 
             Parameters
             ----------
-            pixel_values : pandas.DataFrame
-                A dataframe with a pixel_row, pixel_col, and values column.
-            tile : morecantile.Tile
-                The tile that the pixel values belong to.
-        """
-        # Save the pixel_values
-        self.save_pixel_values(pixel_values, tile)
-        # Create and save the image
-        image = self.create_image(pixel_values)
-        self.save_image(image, tile)
-
-    def create_image(self, pixel_values):
-        """
-            Create a PIL image from the pixel values.
-
-            Parameters
-            ----------
-            pixel_values : pandas.DataFrame
-                A dataframe with a pixel_row, pixel_col, and values column.
+            rasters : list of rasterio.io.DatasetReader objects
+                List of rasters to merge and resample.
+            resampling_methods : list of str
+                List of resampling methods to be applied to the rasters, one
+                for each band in the rasters. If there are fewer methods than
+                bands, the last method is used for all remaining bands. See
+                Rasterio's Resampling Methods for list of the available
+                methods.
 
             Returns
             -------
-            PIL.Image
-                A PIL image.
+            raster : rasterio.io.DatasetReader
+                Rasterio Dataset Reader with the rasters merged and resampled
+                to the specified shape.
         """
-        pixel_values['pixel_val'] = self.to_unit8(
-            pixel_values['frac_covered'], 0, 1
+
+        ref = rasters[0]
+
+        descriptions = ref.descriptions
+        crs = ref.crs
+        count = ref.count
+        dtype = ref.read().dtype
+        if self.shape is None:
+            self.shape = ref.shape
+
+        output_transform = rasterio.transform.from_bounds(
+            self.bounds['left'], self.bounds['bottom'],
+            self.bounds['right'], self.bounds['top'],
+            height=self.shape[0], width=self.shape[1]
         )
 
-        image_data = self.array_from_df(
-            df=pixel_values,
-            rows_column='pixel_row',
-            columns_column='pixel_col',
-            values_column='pixel_val',
-            n_rows=self.height,
-            n_cols=self.width
-        )
+        # The 'source' data is the merged array of all the rasters
+        merged_data, merge_transform = merge(rasters)
+        # Create an array to hold the resampled data in the desired shape.
+        # TODO: The NA values might not always be zero.
+        new_array = np.zeros((count, self.shape[0], self.shape[1]), dtype)
 
-        img_pil = Image.fromarray(image_data, 'P')
-        img_pil.putpalette(self.palette, rawmode='RGBA')
+        # Resampling each band separately, since each band may have a different
+        # resampling method
+        for i in range(count):
+            try:
+                method_i = resampling_methods[i]
+            except IndexError:
+                method_i = resampling_methods[-1]
+            resampling_method = Resampling[method_i]
 
-        return img_pil
+            reproject(
+                source=merged_data[i],
+                destination=new_array[i],
+                src_transform=merge_transform,
+                dst_transform=output_transform,
+                src_crs=crs,
+                dst_crs=crs,
+                resampling=resampling_method)
 
-    def save_image(self, image, tile):
-        """
-            Save an image to disk using the standard path structure for the
-            given tile.
-
-            Parameters
-            ----------
-            image : PIL.Image
-                The image to be saved.
-
-            tile : morecantile.Tile
-                The tile that the image belongs to.
-        """
-        # Get the output path
-        output_path = self.get_tile_path(tile, 'output')
-        output_dir = os.path.dirname(output_path)
-
-        # Create the directory if it doesn't exist
-        if not (os.path.exists(output_dir)):
-            os.makedirs(output_dir, exist_ok=True)
-
-        # Save the image
-        image.save(output_path)
-
-    # TODO: For now, we're just saving the pixel values to a CSV file. It would
-    # be better to save the pixel values to a geotiff or a spatial database.
-    def save_pixel_values(self, pixel_values, tile):
-        """
-            Save the summary of pixel values to disk.
-
-            Parameters
-            ----------
-            pixel_values : pd.DataFrame
-                The pixel_values data to be saved. A data frame with the
-                pixel_row and pixel_col integers as columns, and the
-                pixel_values as values.
-
-            tile : morecantile.Tile
-                The tile that the summary data belongs to.
-        """
-        pixel_values_path = self.get_tile_path(tile, 'pixel_values')
-        # Make the directory if it doesn't exist yet
-        output_dir = os.path.dirname(pixel_values_path)
-        # Create the directory if it doesn't exist
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir, exist_ok=True)
-        pixel_values.to_csv(pixel_values_path, index=False)
-
-    def get_parent_tiles(self, tile):
-        """
-            Get the 1-zoom-level-up parent tile (or tiles) that cover a given
-            tile.
-
-            Parameters
-            ----------
-            tile : morecantile.Tile
-                    A tile object from the morecantile library.
-
-            Returns
-            -------
-            list
-                    A list of morecantile.Tile objects.
-        """
-        # Get the bounding box of the tile
-        bbox = self.tms.bounds(tile)
-        north = bbox.top
-        east = bbox.right
-        south = bbox.bottom
-        west = bbox.left
-        zoom = tile.z
-        tiles = []
-        for t in self.tms.tiles(west, south, east, north, [zoom - 1]):
-            tiles.append(t)
-        return tiles
-
-    def get_child_tiles(self, tile):
-        """
-            Get the 1-zoom-level-down children tiles that a given tile
-            comprises. Assumes every parent tile comprises 4 children tiles.
-
-            Parameters
-            ----------
-            tile : morecantile.Tile
-                    A tile object from the morecantile library.
-
-            Returns
-            -------
-            list
-                    A list of morecantile.Tile objects.
-        """
-
-        x2 = tile.x * 2
-        y2 = tile.y * 2
-
-        child_z = tile.z + 1
-        child_x = (x2, (x2 + 1))
-        child_y = (y2, (y2 + 1))
-
-        tiles = []
-
-        for x in child_x:
-            for y in child_y:
-                tile = morecantile.Tile(x, y, child_z)
-                tiles.append(tile)
-
-        return tiles
+        # Create the output raster as an in-memory file
+        memfile = MemoryFile()
+        with memfile.open(
+            driver='Gtiff',
+            height=self.shape[0], width=self.shape[1],
+            count=count,
+            dtype=dtype,
+            crs=crs,
+            transform=output_transform
+        ) as dataset:
+            dataset.write(new_array)
+            dataset.descriptions = descriptions
+        return memfile.open()
