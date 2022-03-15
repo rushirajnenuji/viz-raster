@@ -4,3 +4,4 @@ coloraide==0.10.0
 Pillow==9.0.1
 morecantile==3.1.0
 Rtree==0.9.7
+rasterio==1.2.10
