@@ -651,6 +651,8 @@ class Raster():
         all_values = np.concatenate(
             [stats_df[col].values for col in values_columns])
         dtype = np.min_scalar_type(all_values)
+        if(dtype == np.int64):  # Not supported
+            dtype = np.int32
 
         # Convert the statistics data frame to a dict of arrays. ensure the
         # arrays are in the same order as that stats config
