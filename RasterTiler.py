@@ -4,9 +4,8 @@ import json
 import logging
 
 import pandas as pd
+import pdgstaging as pdg
 
-from TilePathManager import TilePathManager
-from ConfigManager import ConfigManager
 from Raster import Raster
 from Palette import Palette
 from WebImage import WebImage
@@ -37,8 +36,23 @@ class RasterTiler():
                 JSON file.
         """
 
-        self.config = ConfigManager(config)
-        self.tiles = TilePathManager(**self.config.get_path_manager_config())
+        self.config = pdg.ConfigManager(config)
+        self.tiles = pdg.TilePathManager(
+            **self.config.get_path_manager_config())
+
+    def rasterize_all(self):
+        """
+            The main method for the RasterTiler class. Uses all the information
+            provided in the config to create both GeoTiffs and web tiles at all
+            of the specified z-levels.
+        """
+
+        paths = self.tiles.get_filenames_from_dir('staged')
+        cent_x = self.config.polygon_prop('centroid_x')
+        cent_y = self.config.polygon_prop('centroid_y')
+        centroid_properties = (cent_x, cent_y)
+        self.rasterize_vectors(paths, centroid_properties)
+        self.webtiles_from_all_geotiffs()
 
     def rasterize_vectors(
             self,
@@ -191,6 +205,10 @@ class RasterTiler():
         """
         # tiles may be a set
         tiles = list(tiles)
+
+        if len(tiles) == 0:
+            return
+
         # Check which z-level we are on, using the first tile as a reference.
         z = tiles[0].z
         # Get the last z-level to make tiles for

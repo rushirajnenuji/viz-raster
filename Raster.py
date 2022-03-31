@@ -1,5 +1,6 @@
 import warnings
 import os
+import uuid
 
 import numpy as np
 import geopandas as gpd
@@ -53,6 +54,26 @@ class Raster():
             file.
     """
 
+    def __init__(self):
+        """
+            Initialize a Raster object.
+        """
+
+        # Set random names for properties that will be created temporarily
+        # during rasterization. Random so that they do not conflict with any
+        # existing properties.
+        self.__props = {}
+        for k in ['count', 'area', 'area_prop', 'row', 'col']:
+            self.__props[k] = uuid.uuid4().hex
+
+        # Map the (more descriptive) key words that can be used in the
+        # statistics configuration to the (more compact) __props keys
+        self.__prop_keywords = {
+            'centroids_per_pixel': 'count',
+            'area_within_pixel': 'area',
+            'area_per_pixel_area': 'area_prop',
+        }
+
     @classmethod
     def from_vector(
         cls,
@@ -64,16 +85,17 @@ class Raster():
             {
                 'name': 'polygon_count',
                 'weight_by': 'count',
-                'property': 'polygon_count',
+                'property': 'centroids_per_pixel',
                 'aggregation_method': 'sum'
             },
             {
                 'name': 'coverage',
                 'weight_by': 'area',
-                'property': 'grid_area_prop',
+                'property': 'area_per_pixel_area',
                 'aggregation_method': 'sum'
             }
         ]
+
     ):
         """
             Create a Raster class from Polygons in a vector file.
@@ -127,21 +149,21 @@ class Raster():
                         calculated based on the area of the polygons that cover
                         each cell.
                     property : str
-                        The name of the property in the vector file be used for
-                        the statistic. Besides the properties that are already
-                        available in the vector file, the following three are
-                        also available:
-                            'polygon_count' : The number of polygons in the
-                                cell/pixel. (Only available if weight_by is
-                                'count')
-                            'grid_area' : The area of the polygon
-                                that falls within a given cell/pixel, in the
-                                units of the CRS. (Only available if weight_by
-                                is 'area')
-                            'grid_area_prop' : Same as
-                                'grid_area', but divided by the
-                                area of the cell/pixel. (Only available if
+                        The name of the property in the vector file to
+                        calculate the statistic for. Besides the properties
+                        that are available from the input vector data, the
+                        following keywords can be used:
+                            'centroids_per_pixel' : The number of polygons with
+                                centroids that fall in the cell/pixel. (Only
+                                available if weight_by is 'count')
+                            'area_within_pixel' : The area of the
+                                polygon that falls within a given cell/pixel,
+                                in the units of the CRS. (Only available if
                                 weight_by is 'area')
+                            'area_per_pixel_area' : Same as
+                                'area_within_pixel', but divided by the area of
+                                the cell/pixel. (Only available if weight_by is
+                                'area')
                     aggregation_method : str
                         The function to be applied to the property. The vector
                         data will first be grouped into cells, then the
@@ -246,16 +268,16 @@ class Raster():
     def from_file(cls, filename):
         """
             Create a Raster from a saved raster file.
-        
+
             Parameters
             ----------
             filename : str
                 The path to the raster file.
-            
+
             Returns
             -------
             raster : Raster
-                The rasterio DatasetReader object for the raster. 
+                The rasterio DatasetReader object for the raster.
         """
 
         r = cls()
@@ -459,52 +481,58 @@ class Raster():
         """
             Calculate the statistics for each cell/pixel. Set the resulting
             data frame as a property called 'stats_df' on the class. The
-            stats_df is a data frame with 'row_index', 'col_index' columns plus
+            stats_df is a data frame with row_index, col_index columns plus
             a column for each statistic in the 'stats' list.
         """
 
-        count_stats = [x for x in self.stats if x['weight_by'] == 'count']
-        area_stats = [x for x in self.stats if x['weight_by'] == 'area']
-
+        # Will hold the statistics for each cell/pixel.
         stats_df = None
 
-        if(len(count_stats) > 0):
+        # Property names for row and col index columns.
+        ri = self.__props['row']
+        ci = self.__props['col']
+
+        # Create a dictionary of the aggregations to be performed (format for
+        # for the pandas agg method).
+        agg_dict_count = {}
+        agg_dict_area = {}
+
+        for stat in self.stats:
+            prop = stat['property']
+            if prop in self.__prop_keywords:
+                prop = self.__props[self.__prop_keywords[prop]]
+            method = stat['aggregation_method']
+            agg_tuple = (prop, method)
+            agg_name = stat['name']
+            if stat['weight_by'] == 'count':
+                agg_dict_count[agg_name] = agg_tuple
+            elif stat['weight_by'] == 'area':
+                agg_dict_area[agg_name] = agg_tuple
+
+        if(len(agg_dict_count) > 0):
             # Create a dataframe with the row and column indices are assigned
             # to the polygons based on the location of their centroid.
             centroid_gdf = self.__grid_by_centroid()
-            # Arrange the stats as a named tuple for the pandas agg method
-            aggDict = {}
-            for stat in count_stats:
-                aggDict[stat['name']] = (
-                    stat['property'], stat['aggregation_method'])
-
             count_stats_df = centroid_gdf.groupby(
-                ['row_index', 'col_index'], as_index=False
-            ).agg(**aggDict).reset_index(drop=True)
-
+                [ri, ci], as_index=False).agg(
+                **agg_dict_count).reset_index(drop=True)
             stats_df = count_stats_df
 
-        if(len(area_stats) > 0):
+        if(len(agg_dict_area) > 0):
             # Create a second dataframe where all polygons are sliced along the
             # grid lines, and sliced polygons are assigned to the grid cell
             # they fall within.
             area_gdf = self.__grid_by_area()
-            aggDict = {}
-            for stat in area_stats:
-                aggDict[stat['name']] = (
-                    stat['property'], stat['aggregation_method'])
-            area_stats_df = area_gdf.groupby(
-                ['row_index', 'col_index'], as_index=False
-            ).agg(**aggDict).reset_index(drop=True)
 
-            self.area_stats_df = area_stats_df
+            area_stats_df = area_gdf.groupby([ri, ci], as_index=False).agg(
+                **agg_dict_area).reset_index(drop=True)
 
             if(stats_df is None):
                 stats_df = area_stats_df
             else:
                 stats_df = stats_df.merge(
                     area_stats_df, on=[
-                        'row_index', 'col_index'], how='outer').reset_index(
+                        ri, ci], how='outer').reset_index(
                     drop=True)
                 # Replace NA values that resulted from the merge with 0 (i.e.
                 # where there is polygon coverage but no centroids, the
@@ -533,10 +561,14 @@ class Raster():
         c_gdf = self.gdf.copy()
         # Add a generic column that we can use to sum the number of polygons
         # (otherwise, must use count)
-        c_gdf['polygon_count'] = 1
+        c_gdf[self.__props['count']] = 1
         x_prop = None
         y_prop = None
         cent_props = self.centroid_properties
+
+        # Names for the row and column index columns.
+        ri = self.__props['row']
+        ci = self.__props['col']
 
         if isinstance(cent_props, tuple) or isinstance(cent_props, list):
             x_prop = self.centroid_properties[0]
@@ -555,17 +587,17 @@ class Raster():
             centroids_y = centroids.y
 
         # Identify which grid cell each point belongs within.
-        c_gdf['col_index'] = np.searchsorted(self.cols, centroids_x) - 1
+        c_gdf[ci] = np.searchsorted(self.cols, centroids_x) - 1
         # Reverse arrays because rows are in descending order by
         # np.searchsorted requires ascending order.
-        c_gdf['row_index'] = np.searchsorted(
+        c_gdf[ri] = np.searchsorted(
             -self.rows, -centroids_y) - 1
 
         # Drop any rows that fall outside the grid.
-        c_gdf = c_gdf[(c_gdf['row_index'] >= 0) &
-                      (c_gdf['row_index'] < self.shape[0]) &
-                      (c_gdf['col_index'] >= 0) &
-                      (c_gdf['col_index'] < self.shape[1])]
+        c_gdf = c_gdf[(c_gdf[ri] >= 0) &
+                      (c_gdf[ri] < self.shape[0]) &
+                      (c_gdf[ci] >= 0) &
+                      (c_gdf[ci] < self.shape[1])]
 
         c_gdf.reset_index(inplace=True, drop=True)
 
@@ -585,6 +617,13 @@ class Raster():
                 same number of rows or more than the original, depending on if
                 the polygons are split.
         """
+
+        # Row and column index columns names
+        ri = self.__props['row']
+        ci = self.__props['col']
+        # Rasterization properties
+        ar = self.__props['area_prop']
+        ar_p = self.__props['area_prop']
 
         minx = self.cols[0]
         maxx = self.cols[-1]
@@ -609,9 +648,9 @@ class Raster():
             ))
 
         gdf_grid_rows = gpd.GeoDataFrame(geometry=row_geoms, crs=crs)
-        gdf_grid_rows['row_index'] = gdf_grid_rows.index
+        gdf_grid_rows[ri] = gdf_grid_rows.index
         gdf_grid_cols = gpd.GeoDataFrame(geometry=col_geoms, crs=crs)
-        gdf_grid_cols['col_index'] = gdf_grid_cols.index
+        gdf_grid_cols[ci] = gdf_grid_cols.index
 
         # Intersecting by rows, then by columns is at least 3x faster than
         # intersecting by grid cells and gives the same result.
@@ -622,9 +661,9 @@ class Raster():
         # non-projected coordinate system.
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', UserWarning)
-            area_gdf['grid_area'] = area_gdf.area
+            area_gdf[ar] = area_gdf.area
 
-        area_gdf['grid_area_prop'] = area_gdf['grid_area'] / self.cell_area
+        area_gdf[ar_p] = area_gdf[ar] / self.cell_area
 
         area_gdf.reset_index(inplace=True, drop=True)
 
@@ -643,10 +682,13 @@ class Raster():
 
         stats_df = self.stats_df
 
+        ri = self.__props['row']
+        ci = self.__props['col']
+
         # Get the minimum int dtype for all columns TODO: Set dtype for each
         # stat. Or allow user to set dtype for each stat.
         all_columns = stats_df.columns
-        index_columns = ['row_index', 'col_index']
+        index_columns = [ri, ci]
         values_columns = [x for x in all_columns if x not in index_columns]
         all_values = np.concatenate(
             [stats_df[col].values for col in values_columns])
@@ -721,6 +763,9 @@ class Raster():
                 values from df.
         """
 
+        ri = self.__props['row']
+        ci = self.__props['col']
+
         n_rows = len(self.rows) - 1
         n_cols = len(self.cols) - 1
 
@@ -729,11 +774,11 @@ class Raster():
 
         all_indices = pd.MultiIndex.from_product(
             [range(n_rows), range(n_cols)],
-            names=['row_index', 'col_index'],
+            names=[ri, ci],
         )
 
         a = (
-            df.set_index(['row_index', 'col_index'])[values_column]
+            df.set_index([ri, ci])[values_column]
             .reindex(all_indices, fill_value=0)
             .sort_index()
             .values.reshape((n_rows, n_cols))

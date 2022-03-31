@@ -2,6 +2,8 @@
 import logging
 import logging.config
 
+import pdgstaging as pdg  # For staging
+
 from RasterTiler import RasterTiler
 
 log_dict = {
@@ -36,19 +38,32 @@ log_dict = {
 
 logging.config.dictConfig(log_dict)
 
+# A configuration that will create rasters for z-levels 6 to 13 in the
+# WorldCRS84Quad tms. The GeoTIFFs that are created will have two bands, and
+# the web_tiles will have two possible layers: one for each of the dicts listed
+# under statistics. The first statistic counts the number of polygons in each
+# pixel. The second calculates the proportion of each pixel that is covered by
+# polygons. This config could also be a JSON file, and the path could be passed
+# to RasterTiler.
 my_config = {
     'tms_id': 'WorldCRS84Quad',
     'tile_path_structure': ['style', 'tms', 'z', 'x', 'y'],
-    'geotiff_dir': 'example/geotiffs',
-    'web_tiles_dir': 'example/web-tiles',
-    'web_tiles_type': '.png',
-    'z_range': (0, 13),
-    'tile_size': (256, 256),
+    'dir_input': 'example/input-data',
+    # input: tiled vector files created by viz-staging
+    'dir_staged': 'example/staged-vectors',
+    # output: where the GeoTIFFs and web tiles should be saved
+    'dir_geotiff': 'example/geotiffs',
+    'dir_web_tiles': 'example/web-tiles',
+    'filename_staging_summary': 'example/staging-summary.csv',
+    'ext_input': '.shp',
+    'ext_web_tiles': '.png',
+    'z_range': (6, 13),
+    'tile_size': (128, 128),
     'statistics': [
         {
             'name': 'iwp_count',
             'weight_by': 'count',
-            'property': 'polygon_count',
+            'property': 'centroids_per_pixel',
             'aggregation_method': 'sum',
             'resampling_method': 'sum',
             'val_range': [0, None],
@@ -59,7 +74,7 @@ my_config = {
         {
             'name': 'iwp_coverage',
             'weight_by': 'area',
-            'property': 'grid_area_prop',
+            'property': 'area_per_pixel_area',
             'aggregation_method': 'sum',
             'resampling_method': 'average',
             'val_range': [0, 1],
@@ -68,23 +83,23 @@ my_config = {
     ]
 }
 
+
+# To stage vector files, use the TileStager. This will take the large shapefile
+# that is in the input-vectors directory and create smaller, tiled geopackage
+# files (at z-level 13) in the the staged-vectors directory.
+stager = pdg.TileStager(my_config)
+stager.stage_all()
+
+# The tiler will create GeoTiffs and web tiles from the staged, tiled vectors.
+# Use the same config.
 tiler = RasterTiler(my_config)
 
-# Create geotiffs for z-level 13 through to 0 from the z-level 13
-# geopackage files in the staged-vector directory.
-tiler.rasterize_vectors(
-    paths={
-        'path': 'example/staged-vectors',
-        'ext': '.gpkg',
-    },
-    centroid_properties=('centroid_x', 'centroid_y'),
-    make_parents=True
-)
-
-# Now make web tiles from all of the geotiffs just created. For the iwp_count
+# Create geotiffs for z-level 13 through to 6 starting with the z-level 13
+# geopackage files in the staged-vector directory. Once complete, make .png
+# tiles for the web from all of the geotiffs just created. For the iwp_count
 # statistic, automatically calculate the max for each z-level from the geotiffs
 # (because the max is set to None in the config's `val_range` for the stat).
-tiler.webtiles_from_all_geotiffs()
+tiler.rasterize_all()
 
 # Check if any files were not successfully created.
 tiler.get_errors()
@@ -96,7 +111,7 @@ events = tiler.get_events(as_df=True)
 # geotiffs from child geotiffs, and to create web tiles from geotiffs.
 events.groupby('type').agg({'total_time': 'mean'})
 
-# See the total number of IWP polygons from Tile(x=2611, y=629, z=13)
-tile_of_interest = tiler.tiles.tile(x=2611, y=629, z=13)
+# See the total number of polygons from Tile(x=1418, y=908, z=13)
+tile_of_interest = tiler.tiles.tile(x=1418, y=908, z=13)
 info_about_tile = events[events['tile'] == tile_of_interest]
 info_about_tile['raster_summary'][0]['iwp_count']['sum']
