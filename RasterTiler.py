@@ -119,7 +119,7 @@ class RasterTiler():
         if(ref_tile_props.get('tms') != tms_id):
             raise ValueError(
                 'tms of the input vector tiles must match the tms' +
-                'specified in the config file')
+                ' specified in the config file')
 
         # Get properties to pass to the rasterizer
         raster_stats_config = self.config.get_raster_config()

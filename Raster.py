@@ -192,15 +192,15 @@ class Raster():
 
         # Reset the properties saved to this class during the above processing
         # steps
-        r.centroid_properties = None
-        r.bounds = None
-        r.shape = None
-        r.stats = None
-        r.gdf = None
-        r.rows = None
-        r.cols = None
-        r.cell_area = None
-        r.stats_df = None
+        # r.centroid_properties = None
+        # r.bounds = None
+        # r.shape = None
+        # r.stats = None
+        # r.gdf = None
+        # r.rows = None
+        # r.cols = None
+        # r.cell_area = None
+        # r.stats_df = None
 
         r.update_properties(raster)
 

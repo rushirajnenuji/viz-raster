@@ -9,9 +9,11 @@ class Palette():
         gradient.
     """
 
+    default_colors = ['#FFFFFF', '#000000']
+
     def __init__(
         self,
-        colors=['#000000', '#FFFFFF'],
+        colors=None,
     ):
         """
             Create a Palette object.
@@ -23,6 +25,8 @@ class Palette():
                 library. If not set, a color range of black to white will be
                 used.
         """
+        if colors is None:
+            colors = self.default_colors
         self.update_colors(colors)
 
     def update_colors(self, colors):
