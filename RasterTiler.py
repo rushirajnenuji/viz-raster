@@ -3,6 +3,7 @@ import uuid
 import json
 import logging
 
+import geopandas as gpd
 import pandas as pd
 import pdgstaging as pdg
 
@@ -150,8 +151,15 @@ class RasterTiler():
                 logger.info(
                     f'Rasterizing {path} for tile {tile} to {out_path}.')
 
+                # Check if deduplication should be performed first
+                gdf = gpd.read_file(path)
+                if self.config.deduplicate_at('raster'):
+                    dedup = pdg.deduplicate(
+                        gdf, **self.config.get_deduplication_config())
+                    gdf = dedup['keep']
+
                 raster = Raster.from_vector(
-                    input_path=path,
+                    vector=gdf,
                     centroid_properties=centroid_properties,
                     bounds=bounds,
                     shape=tile_size,

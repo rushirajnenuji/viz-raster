@@ -77,7 +77,7 @@ class Raster():
     @classmethod
     def from_vector(
         cls,
-        input_path=None,
+        vector=None,
         centroid_properties=None,
         bounds=None,
         shape=(256, 256),
@@ -112,9 +112,10 @@ class Raster():
 
             Parameters
             ----------
-            input_path : str
+            vector : str or GeoDataFrame
                 Required. The path to the vector file to be converted into a
-                raster.
+                raster, or a GeoDataFrame object containing the polygons to be
+                rasterized.
             centroid_properties : tuple of str
                 Optional. If centroids have been pre-calculated for these
                 vectors, then the name the two properties in the vector data
@@ -185,7 +186,7 @@ class Raster():
         r.shape = shape
         r.stats = stats
 
-        r.__set_and_check_gdf(input_path)
+        r.__set_and_check_gdf(vector)
         r.__set_grid()
         r.__calculate_stats()
         raster = r.__create_raster_from_stats_df()
@@ -398,7 +399,7 @@ class Raster():
 
         return grid
 
-    def __set_and_check_gdf(self, input_path=None):
+    def __set_and_check_gdf(self, vector=None):
         """
             Open the vector file as a GeoPandas GeoDataFrame, and set it on the
             class as a property called 'gdf' for other methods to use. Check
@@ -407,17 +408,29 @@ class Raster():
 
             Parameters
             ----------
-            input_path : str
-                The path to the vector file to be converted into a raster.
+            vector : str or GeoDataFrame
+                Required. The path to the vector file to be converted into a
+                raster, or a GeoDataFrame object containing the polygons to be
+                rasterized.
         """
 
         # Give error if no GDF is provided.
-        if not isinstance(input_path, str):
+        if not (
+            isinstance(vector, str) or
+            isinstance(vector, gpd.GeoDataFrame)
+        ):
             raise ValueError(
                 'An input path (string) for a vector must be provided.')
 
         # Read the GDF.
-        self.gdf = gpd.read_file(input_path)
+        if isinstance(vector, str):
+            self.gdf = gpd.read_file(vector)
+        elif isinstance(vector, gpd.GeoDataFrame):
+            self.gdf = vector
+        else:
+            raise ValueError(
+                'The input vector must be a string or a GeoDataFrame object.')
+
         gdf = self.gdf
 
         # Check that the GDF has a CRS
