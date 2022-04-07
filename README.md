@@ -12,6 +12,16 @@ documentation in `ConfigManager.py` for more details.
 
 ## Running
 
+Requires Python version `3.9` and `libspatialindex` or `libspatialindex-dev`
+
+1. Follow the instructions to install [`libspatialindex`](https://libspatialindex.org/en/latest/) or [`libspatialindex-dev`](https://packages.ubuntu.com/bionic/libspatialindex-dev)
+2. Make sure that Python version 3.9 is installed (try `which python3.9`).
+3. Install `pdgraster` from GitHub repo using pip: `pip install git+https://github.com/PermafrostDiscoveryGateway/viz-raster.git`
+4. Create a config JSON file for the raster job, see `help(pdgraster.ConfigManager)` for details. See `pdgraster.ConfigManager.defaults` for default config values.
+5. Run: `python -m pdgraster -c '/path/to/config.json'`, or follow the example under the `examples` directory.
+
+## Development
+
 Uses Python version `3.9` and packages listed under `requirements.txt`
 
 1. Make sure you have Python version 3.9 installed and that you know the path
