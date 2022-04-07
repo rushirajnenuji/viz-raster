@@ -2,9 +2,8 @@
 import logging
 import logging.config
 
-import pdgstaging as pdg  # For staging
-
-from RasterTiler import RasterTiler
+import pdgstaging  # For staging
+import pdgraster
 
 log_dict = {
     'version': 1,
@@ -87,12 +86,12 @@ my_config = {
 # To stage vector files, use the TileStager. This will take the large shapefile
 # that is in the input-vectors directory and create smaller, tiled geopackage
 # files (at z-level 13) in the the staged-vectors directory.
-stager = pdg.TileStager(my_config)
+stager = pdgstaging.TileStager(my_config)
 stager.stage_all()
 
 # The tiler will create GeoTiffs and web tiles from the staged, tiled vectors.
 # Use the same config.
-tiler = RasterTiler(my_config)
+tiler = pdgraster.RasterTiler(my_config)
 
 # Create geotiffs for z-level 13 through to 6 starting with the z-level 13
 # geopackage files in the staged-vector directory. Once complete, make .png

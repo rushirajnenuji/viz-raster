@@ -3,7 +3,7 @@ import os
 from PIL import Image
 import numpy as np
 
-from Palette import Palette
+from . import Palette
 
 
 class WebImage():

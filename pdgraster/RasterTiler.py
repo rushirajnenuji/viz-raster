@@ -5,11 +5,11 @@ import logging
 
 import geopandas as gpd
 import pandas as pd
-import pdgstaging as pdg
+import pdgstaging
 
-from Raster import Raster
-from Palette import Palette
-from WebImage import WebImage
+from . import Raster
+from . import Palette
+from . import WebImage
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +37,8 @@ class RasterTiler():
                 JSON file.
         """
 
-        self.config = pdg.ConfigManager(config)
-        self.tiles = pdg.TilePathManager(
+        self.config = pdgstaging.ConfigManager(config)
+        self.tiles = pdgstaging.TilePathManager(
             **self.config.get_path_manager_config())
 
     def rasterize_all(self):
@@ -154,7 +154,7 @@ class RasterTiler():
                 # Check if deduplication should be performed first
                 gdf = gpd.read_file(path)
                 if self.config.deduplicate_at('raster'):
-                    dedup = pdg.deduplicate(
+                    dedup = pdgstaging.deduplicate(
                         gdf, **self.config.get_deduplication_config())
                     gdf = dedup['keep']
 
