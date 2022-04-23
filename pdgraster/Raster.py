@@ -46,9 +46,8 @@ class Raster():
         data : numpy.ndarray
             The raster data.
         summary : dict
-            A dictionary of summary statistics for each band, with keys
-            corresponding to the band descriptions. Within each band, the keys
-            are 'min', 'max', 'mean', 'median', 'std', 'var', and 'sum'.
+            A dictionary of summary statistics for each band, including
+            'bounds', 'min', 'max', 'mean', 'median', 'std', 'var', and 'sum'.
         path : str
             The path to the raster file, if it was opened from or saved to a
             file.
@@ -318,19 +317,30 @@ class Raster():
 
         self.data = raster.read()
 
-        self.summary = {}
+        self.summary = {
+            'stat': self.descriptions,
+            'bounds': [[
+                self.bounds['left'],
+                self.bounds['right'],
+                self.bounds['bottom'],
+                self.bounds['top']
+            ]] * self.count,
+            'min': [None] * self.count,
+            'max': [None] * self.count,
+            'mean': [None] * self.count,
+            'median': [None] * self.count,
+            'std': [None] * self.count,
+            'var': [None] * self.count,
+            'sum': [None] * self.count}
         for i in range(self.count):
-            description = self.descriptions[i]
             values = self.data[i]
-            self.summary[description] = {
-                'min': values.min(),
-                'max': values.max(),
-                'mean': values.mean(),
-                'median': np.median(values),
-                'std': values.std(),
-                'var': values.var(),
-                'sum': values.sum()
-            }
+            self.summary['min'][i] = values.min()
+            self.summary['max'][i] = values.max()
+            self.summary['mean'][i] = values.mean()
+            self.summary['median'][i] = np.median(values)
+            self.summary['std'][i] = values.std()
+            self.summary['var'][i] = values.var()
+            self.summary['sum'][i] = values.sum()
 
         if raster.files:
             self.path = raster.files[0]
