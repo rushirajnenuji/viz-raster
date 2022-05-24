@@ -15,7 +15,7 @@ setup(
     url='https://github.com/PermafrostDiscoveryGateway/viz-raster',
     packages=['pdgraster'],
     install_requires=[
-        'numpy >= 1.22, < 2',
+        'numpy >= 1.2, < 2',
         'geopandas >= 0.10, < 1',
         'coloraide >= 0.10, < 1',
         'Pillow >= 9, < 10',
