@@ -1,5 +1,5 @@
 import re
-
+import numbers
 from coloraide import Color
 
 
@@ -10,10 +10,12 @@ class Palette():
     """
 
     default_colors = ['#FFFFFF', '#000000']
+    default_nodata_color = '#ffffff00'
 
     def __init__(
         self,
         colors=None,
+        nodata_color=None
     ):
         """
             Create a Palette object.
@@ -27,9 +29,11 @@ class Palette():
         """
         if colors is None:
             colors = self.default_colors
-        self.update_colors(colors)
+        if nodata_color is None:
+            nodata_color = self.default_nodata_color
+        self.update_colors(colors, nodata_color)
 
-    def update_colors(self, colors):
+    def update_colors(self, colors, nodata_color):
         """
             Update the palette colors with a new list of colors.
 
@@ -41,28 +45,43 @@ class Palette():
                 used.
         """
         self.colors = colors
+        self.nodata_color = nodata_color
         self.gradient = self.create_gradient()
-        self.flat_palette = self.get_flat_palette()
+        self.rgba_list = self.get_rgba_list()
 
     def create_gradient(self):
         """
             Create a function that takes a value between 0 and 1 and returns a
             Color object.
         """
-        return Color(self.colors[0]).interpolate(self.colors[1:], space='lch')
+        cols = self.colors
+        self.__gradient_vals_only = Color(
+            cols[0]).interpolate(cols[1:], space='lch')
 
-    def get_flat_palette(self):
+        def gradient(val):
+            # if the value is anything other than a number, return the nodata
+            # color
+            if not isinstance(val, numbers.Number):
+                return Color(self.nodata_color)
+            # if the value is less than 0, return the first color
+            if val < 0:
+                val = 0
+            # if the value is greater than 1, return the last color
+            if val > 1:
+                val = 1
+            return self.__gradient_vals_only(val)
+        return gradient
+
+    def get_rgba_list(self, pal_size=256):
         """
-            Create a list of 1024 integer values, where each group of four
-            values represent represent red, green, blue, and alpha values for
-            the corresponding pixel index. The values can be used with the PIL
-            Image.putpalette function.
+            Create a list of 257 RGBA values that represent the palette,
+            interpolating between the colors in the palette. The last value in
+            the list is the nodata color.
         """
-        pal_size = 256
         pal_values = [x / pal_size for x in range(pal_size)]
         pal_rgba = [self.get_rgba(i) for i in pal_values]
-        pal_flat = [item for sublist in pal_rgba for item in sublist]
-        return pal_flat
+        pal_rgba.extend([self.get_rgba(None)])  # nodata color
+        return pal_rgba
 
     def get_rgba(self, val):
         """

@@ -16,9 +16,10 @@ class WebImage():
     def __init__(
         self,
         image_data,
-        palette=Palette(['rgb(102 51 153 / 0.1)', 'lch(85% 100 85)']),
+        palette=Palette(['#663399', '#ffcc00'], '#ffffff00'),
         min_val=None,
-        max_val=None
+        max_val=None,
+        nodata_val=None
     ):
         """
             Create a WebImage object.
@@ -27,11 +28,13 @@ class WebImage():
             ----------
             image_data : numpy.array, required
                 The array of pixel values.
-            palette: Palette or list of str, optional
-                Either a Palette object or a list of color strings in any
-                format accepted by the coloraide library. The RGBA values that
-                comprise this palette will be mapped linearly to the pixel
-                values in the image_data.
+            palette: Palette or list or tuple, optional
+                Either a Palette object or a list/tuple with two items. The
+                first item is a list of color strings and the second item is
+                the nodata color represented as a string. Color strings can be
+                in any format accepted by the coloraide library. If not set, a
+                color range of purple to yellow will be used, with a nodata
+                color of transparent.
             min_val : float, optional
                 Set a min value that is different from the min value that
                 exists in the image_data. The min value will translate to the
@@ -40,46 +43,37 @@ class WebImage():
                 Set a max value that is different from the max value that
                 exists in the image_data. The max value will translate to the
                 last color in the palette.
-
+            nodata_val : any, optional
+                Set a value that will be treated as missing data or no data.
+                Pixels with this value will be set to the nodata color that
+                is specified in the palette. If not set, None will be used.
         """
-        if min_val is None:
-            min_val = np.min(image_data)
-        if max_val is None:
-            max_val = np.max(image_data)
+
+        # Calculate the min and max values if they are not provided
+        if min_val is None or max_val is None:
+            # get the min & max while ignoring the NaN values, None values, and
+            # infinities. Can't test for finite values if array contains None,
+            # converting to float will convert the Nones to np.nan.
+            data_for_calcs = image_data.copy().astype(np.float64)
+            data_for_calcs = data_for_calcs[np.isfinite(data_for_calcs)]
+            data_for_calcs = data_for_calcs.flatten()
+            if min_val is None:
+                min_val = np.nanmin(data_for_calcs)
+            if max_val is None:
+                max_val = np.nanmax(data_for_calcs)
+
         self.min_val = min_val
         self.max_val = max_val
-        if isinstance(palette, list):
-            palette = Palette(palette)
-        self.palette = palette.flat_palette
+        self.nodata_val = nodata_val
+        if isinstance(palette, (list, tuple)):
+            if not isinstance(palette[0], (list, tuple)):
+                palette = [palette]
+            palette = Palette(*palette)
+        self.rgba_list = palette.rgba_list
+        self.image_data = image_data
+        self.height = image_data.shape[0]
+        self.width = image_data.shape[1]
         self.image = self.to_image(image_data)
-
-    def to_unit8(self, values):
-        """
-            Takes an array of values and scales it to 0-255. The min and max
-            values are used to first rescale the values to the range [0, 1].
-            Any numbers greater than the max will be set to 255 in the output,
-            and any numbers less than the min will be set to 0.
-
-            Parameters
-            ----------
-            values : numpy.array
-                The array of values to be scaled.
-
-            Returns
-            -------
-            numpy.array
-                An array of np.uint8 values.
-        """
-
-        # Normalize the array so that it's between 0 and 1
-        values = (values - self.min_val) / (self.max_val - self.min_val)
-        # Make sure the array is between 0 and 255
-        values = np.where(values > 1, 1, values)
-        values = np.where(values < 0, 0, values)
-        # Convert the array to uint8
-        values = values * 255
-        values = values.astype(np.uint8)
-        return values
 
     def to_image(self, image_data):
         """
@@ -96,9 +90,37 @@ class WebImage():
                 A PIL image.
         """
 
-        image_data = self.to_unit8(image_data)
-        img_pil = Image.fromarray(image_data, 'P')
-        img_pil.putpalette(self.palette, rawmode='RGBA')
+        min_val = self.min_val
+        max_val = self.max_val
+        nodata_val = self.nodata_val
+        image_data = image_data.copy()
+        rgba_list = self.rgba_list
+        height = self.height
+        width = self.width
+        no_data_mask = image_data == nodata_val
+
+        # set the nodata value to np.nan
+        if(len(no_data_mask)):
+            image_data[no_data_mask] = np.nan
+        # convert the array from min to max to 0 to 255, and set the nodata
+        # values 256. Values < min_val will be set to min_val. Values > max_val
+        # will be set to max_val.
+        image_data[image_data < min_val] = min_val
+        image_data[image_data > max_val] = max_val
+        image_data_scaled = (image_data - min_val) * \
+            (255 / (max_val - min_val))
+        image_data_scaled[no_data_mask] = 256
+        image_data_scaled = image_data_scaled.astype(int)
+
+        # replace each value in the matrix with the corresponding color in the
+        # list of rgba values. palette. The list consists of 256 RGBA values,
+        # plus a 257th value for the nodata color.
+        rgba_data = [rgba_list[i] for i in image_data_scaled.flat]
+        # reshape
+        rgba_data = np.reshape(rgba_data, (height, width, 4))
+        rgba_data = rgba_data.astype(np.uint8)
+
+        img_pil = Image.fromarray(rgba_data, 'RGBA')
         return img_pil
 
     def save(self, filename):
@@ -113,7 +135,7 @@ class WebImage():
         """
         # Create the directory if it doesn't exist
         dirname = os.path.dirname(filename)
-        if not os.path.exists(dirname):
+        if dirname and not os.path.exists(dirname):
             os.makedirs(dirname)
         self.image.save(filename)
 
