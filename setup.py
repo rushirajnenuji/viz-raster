@@ -22,7 +22,7 @@ setup(
         'morecantile >= 3.1, < 4',
         'Rtree >= 0.9, < 1',
         'rasterio >= 1.2, < 2',
-        'pdgstaging @ git+https://github.com/PermafrostDiscoveryGateway/viz-staging.git@develop#egg=pdgstaging'
+        'pdgstaging @ git+https://github.com/PermafrostDiscoveryGateway/viz-staging.git@scalable-computing-course#egg=pdgstaging'
     ],
     python_requires='>=3.9, <4',
     classifiers=[
