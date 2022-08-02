@@ -28,13 +28,14 @@ class WebImage():
             ----------
             image_data : numpy.array, required
                 The array of pixel values.
-            palette: Palette or list or tuple, optional
+            palette: Palette, list, tuple, optional
                 Either a Palette object or a list/tuple with two items. The
-                first item is a list of color strings and the second item is
-                the nodata color represented as a string. Color strings can be
-                in any format accepted by the coloraide library. If not set, a
-                color range of purple to yellow will be used, with a nodata
-                color of transparent.
+                first item is a list of color strings or name of a colormap,
+                and the second item is the nodata color represented as a
+                string. Color strings can be in any format accepted by the
+                coloraide library. Colormap names can be any supported by the
+                colormaps library. If not set, a color range of purple to
+                yellow will be used, with a nodata color of transparent.
             min_val : float, optional
                 Set a min value that is different from the min value that
                 exists in the image_data. The min value will translate to the
@@ -45,8 +46,8 @@ class WebImage():
                 last color in the palette.
             nodata_val : any, optional
                 Set a value that will be treated as missing data or no data.
-                Pixels with this value will be set to the nodata color that
-                is specified in the palette. If not set, None will be used.
+                Pixels with this value will be set to the nodata color that is
+                specified in the palette. If not set, None will be used.
         """
 
         # Calculate the min and max values if they are not provided
@@ -66,8 +67,6 @@ class WebImage():
         self.max_val = max_val
         self.nodata_val = nodata_val
         if isinstance(palette, (list, tuple)):
-            if not isinstance(palette[0], (list, tuple)):
-                palette = [palette]
             palette = Palette(*palette)
         self.rgba_list = palette.rgba_list
         self.image_data = image_data
