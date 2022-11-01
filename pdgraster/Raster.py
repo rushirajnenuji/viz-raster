@@ -671,9 +671,12 @@ class Raster():
             ))
 
         gdf_grid_rows = gpd.GeoDataFrame(geometry=row_geoms, crs=crs)
-        gdf_grid_rows[ri] = gdf_grid_rows.index
+        gdf_grid_rows.reset_index(inplace=True)
+        gdf_grid_rows.rename(columns={'index': ri}, inplace=True)
+
         gdf_grid_cols = gpd.GeoDataFrame(geometry=col_geoms, crs=crs)
-        gdf_grid_cols[ci] = gdf_grid_cols.index
+        gdf_grid_cols.reset_index(inplace=True)
+        gdf_grid_cols.rename(columns={'index': ci}, inplace=True)
 
         # Intersecting by rows, then by columns is at least 3x faster than
         # intersecting by grid cells and gives the same result.
