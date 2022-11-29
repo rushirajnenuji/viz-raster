@@ -188,7 +188,7 @@ class Raster():
         r.__set_and_check_gdf(vector)
         r.__set_grid()
         r.__calculate_stats()
-        raster = r.__create_raster_from_stats_df()
+        mem_file = r.__create_raster_from_stats_df()
 
         # Reset the properties saved to this class during the above processing
         # steps
@@ -202,7 +202,9 @@ class Raster():
         # r.cell_area = None
         # r.stats_df = None
 
-        r.update_properties(raster)
+        with mem_file.open() as raster:
+            r.update_properties(raster)
+        mem_file.close()
 
         return r
 
@@ -279,10 +281,9 @@ class Raster():
             raster : Raster
                 The rasterio DatasetReader object for the raster.
         """
-
         r = cls()
-        raster = rasterio.open(filename)
-        r.update_properties(raster)
+        with rasterio.open(filename) as raster:
+            r.update_properties(raster)
         return r
 
     def update_properties(self, raster, close=True):
@@ -701,9 +702,9 @@ class Raster():
 
             Returns
             -------
-            dataset: rasterio.io.DatasetReader
-                A rasterio dataset reader object that can be used to read the
-                raster data, or written to a file, etc.
+            dataset: rasterio.io.MemoryFile
+                A rasterio in memory file object that can be used to read the
+                raster data or write to a file.
         """
 
         stats_df = self.stats_df
@@ -759,7 +760,7 @@ class Raster():
                 data_array = stats_dict[key]
                 dataset.write(data_array, band_index)
                 dataset.set_band_description(band_index, key)
-        return memfile.open()
+        return memfile
 
     def __as_array(
         self,
