@@ -16,7 +16,7 @@ setup(
     packages=['pdgraster'],
     install_requires=[
         'numpy >= 1.2, < 2',
-        'shapely >= 2 < 3',
+        'shapely >= 2, < 3',
         'geopandas >= 0.12.2, < 1',
         'coloraide >= 0.10, < 1',
         'Pillow >= 9, < 10',
