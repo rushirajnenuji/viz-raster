@@ -4,10 +4,10 @@ with open('README.md', 'r') as fh:
     long_description = fh.read()
 
 setup(
-    author='Robyn Thiessen-Bock',
-    author_email='thiessenbock@nceas.ucsb.edu',
+    author='Robyn Thiessen-Bock, Juliet Cohen',
+    author_email='thiessenbock@nceas.ucsb.edu, jcohen@nceas.ucsb.edu',
     name='pdgraster',
-    version='0.1.0',
+    version='0.9.0',
     description='Rasterization to GeoTiff and web-based tiles for the PDG '
                 'Visualization pipeline',
     long_description=long_description,
