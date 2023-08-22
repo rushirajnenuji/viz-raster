@@ -5,6 +5,13 @@ import numpy as np
 
 from . import Palette
 
+import time
+import uuid
+import logging
+from . import logging_config
+import os
+logger = logging_config.logger
+
 
 class WebImage():
     """
@@ -96,6 +103,9 @@ class WebImage():
         rgba_list = self.rgba_list
         height = self.height
         width = self.width
+
+        logger.info("Converting array type to float")
+        image_data = image_data.astype(float)
         no_data_mask = image_data == nodata_val
 
         # set the nodata value to np.nan
