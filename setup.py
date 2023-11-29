@@ -24,7 +24,7 @@ setup(
         'Rtree >= 0.9, < 1',
         'rasterio >= 1.2, < 2',
         'pdgstaging @ git+https://github.com/PermafrostDiscoveryGateway/viz-staging.git#egg=pdgstaging',
-        'colormaps @ git+https://github.com/pratiman-91/colormaps.git#egg=colormaps'
+        'colormaps == 0.4.0'
     ],
     python_requires='>=3.9, <4',
     classifiers=[
