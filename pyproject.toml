@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "pdgraster"
 version = "0.9.1"
-description = "Geospatial data tiling workflow"
+description = "Geospatial data rasterization workflow"
 authors = [
     "Robyn Thiessen-Bock <thiessenbock@nceas.ucsb.edu>",
     "Juliet Cohen <jcohen@nceas.ucsb.edu>",
@@ -39,6 +39,3 @@ pytest = ">=7"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
-
-[misc.saved.keys]
-pdgstaging = { git = "https://github.com/PermafrostDiscoveryGateway/viz-staging.git", tag="0.9.1" }
