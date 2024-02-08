@@ -1,4 +1,4 @@
-# Viz-raster: raster data processing for geospatial visualization (version 0.9.1)
+# Viz-raster: raster data processing for geospatial visualization
 
 - **Authors**: Robyn Thiessen-Bock ; Juliet Cohen ; Matthew B. Jones ; Lauren Walker
 - **DOI**: [10.18739/A27W67732](https://ezid.cdlib.org/id/doi:10.18739/A27W67732)
