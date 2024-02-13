@@ -7,7 +7,7 @@ setup(
     author='Robyn Thiessen-Bock, Juliet Cohen',
     author_email='thiessenbock@nceas.ucsb.edu, jcohen@nceas.ucsb.edu',
     name='pdgraster',
-    version='0.9.0',
+    version='0.9.1',
     description='Rasterization to GeoTiff and web-based tiles for the PDG '
                 'Visualization pipeline',
     long_description=long_description,
