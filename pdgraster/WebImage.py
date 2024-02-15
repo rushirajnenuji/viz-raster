@@ -103,8 +103,6 @@ class WebImage():
         rgba_list = self.rgba_list
         height = self.height
         width = self.width
-
-        logger.info("Converting array type to float")
         image_data = image_data.astype(float)
         no_data_mask = image_data == nodata_val
 
