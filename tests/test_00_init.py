@@ -45,14 +45,14 @@ def test_rasterize():
     logging.config.dictConfig(log_dict)
 
     # A configuration that will create rasters for z-levels 6 to 13 in the
-    # WorldCRS84Quad tms. The GeoTIFFs that are created will have two bands, and
+    # WGS1984Quad tms. The GeoTIFFs that are created will have two bands, and
     # the web_tiles will have two possible layers: one for each of the dicts listed
     # under statistics. The first statistic counts the number of polygons in each
     # pixel. The second calculates the proportion of each pixel that is covered by
     # polygons. This config could also be a JSON file, and the path could be passed
     # to RasterTiler.
     my_config = {
-        'tms_id': 'WorldCRS84Quad',
+        'tms_id': 'WGS1984Quad',
         'tile_path_structure': ['style', 'tms', 'z', 'x', 'y'],
         'dir_input': 'example/input-data',
         # input: tiled vector files created by viz-staging
