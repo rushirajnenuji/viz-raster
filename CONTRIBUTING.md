@@ -19,8 +19,7 @@ bug reports, documentation, graphics, and many others.  You might consider contr
 - Fix a bug and contribute the code with a Pull Request
 - Write or edit some documentation
 - Sharing helpful tips or FAQ-type answers to users or future contributors
-- Create screenshots or tutorials of features of MetacatUI
-- Answer questions on DataONE Discussions
+- Create screenshots or tutorials of features
 - ...
 
 This is an open source project, and we welcome full
@@ -124,7 +123,7 @@ exercise the feature to ensure that it responds correctly to both good data inpu
 and various classes of corrupt or bad data.  All tests should pass before submitting a PR
 or merging to `develop`.
 
-Tests are automatically run via GitHub Actions. Check the root `README.md` file
+In a future release, tests will automatically run via GitHub Actions. Check the root `README.md` file
 for this GitHub Actions status badge and make sure it says "Passing":
 
 ## Code style
