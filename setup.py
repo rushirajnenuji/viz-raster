@@ -7,7 +7,7 @@ setup(
     author='Robyn Thiessen-Bock, Juliet Cohen',
     author_email='thiessenbock@nceas.ucsb.edu, jcohen@nceas.ucsb.edu',
     name='pdgraster',
-    version='0.9.0',
+    version='0.9.2',
     description='Rasterization to GeoTiff and web-based tiles for the PDG '
                 'Visualization pipeline',
     long_description=long_description,
@@ -23,6 +23,7 @@ setup(
         'morecantile >= 3.1, < 4',
         'Rtree >= 0.9, < 1',
         'rasterio >= 1.2, < 2',
+        'pydantic == 1.10.9',
         'pdgstaging @ git+https://github.com/PermafrostDiscoveryGateway/viz-staging.git#egg=pdgstaging',
         'colormaps == 0.4.0'
     ],

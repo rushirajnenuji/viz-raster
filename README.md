@@ -1,6 +1,10 @@
-# PDG Raster
+# Viz-raster: raster data processing for geospatial visualization
 
-## PDG visualization pipeline for raster processing
+- **Authors**: Robyn Thiessen-Bock ; Juliet Cohen ; Matthew B. Jones ; Lauren Walker
+- **DOI**: [10.18739/A2M03XZ9Z](https://ezid.cdlib.org/id/doi:10.18739/A2M03XZ9Z)
+- **License**: [Apache 2](https://opensource.org/license/apache-2-0/)
+- [Package source code on GitHub](https://github.com/PermafrostDiscoveryGateway/viz-raster)
+- [Submit bugs and feature requests](https://github.com/PermafrostDiscoveryGateway/viz-raster/issues/new)
 
 Converts pre-tiled vector output from from the [PDG
 viz-staging](https://github.com/PermafrostDiscoveryGateway/viz-staging) step
@@ -12,12 +16,18 @@ documentation in `ConfigManager.py` for more details.
 
 ![PDG raster summary](docs/images/raster_tldr.png)
 
+## Citation
+
+Cite this software as:
+
+> Robyn Thiessen-Bock, Juliet Cohen, Matt Jones, Lauren Walker. 2023. Viz-raster: raster data processing for geospatial visualization (version 0.9.2). Arctic Data Center. doi: 10.18739/A2M03XZ9Z
+
 ## Install
 
-Requires Python version `3.9` and `libspatialindex` or `libspatialindex-dev`
+Requires Python version `3.9` or `3.10` and `libspatialindex` or `libspatialindex-dev`
 
 1. Follow the instructions to install [`libspatialindex`](https://libspatialindex.org/en/latest/) or [`libspatialindex-dev`](https://packages.ubuntu.com/bionic/libspatialindex-dev)
-2. Make sure that Python version 3.9 is installed (try `which python3.9`).
+2. Make sure that Python version 3.9 or 3.10 is installed (try `which python3.9`).
 3. Install `pdgraster` from GitHub repo using pip: `pip install git+https://github.com/PermafrostDiscoveryGateway/viz-raster.git`
 
 ## Usage
@@ -29,3 +39,21 @@ Requires Python version `3.9` and `libspatialindex` or `libspatialindex-dev`
 
 **In python:**
 See [`example/main.py`](example/main.py) for a complete example.
+
+## License
+
+```
+Copyright [2013] [Regents of the University of California]
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
