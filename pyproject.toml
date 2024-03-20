@@ -31,7 +31,7 @@ coloraide = ">= 0.10, < 1"
 colormaps = "== 0.4.0"
 Pillow = ">= 9"
 rasterio = ">= 1.2, < 2"
-pdgstaging = ">=0.9.2"
+pdgstaging = { git = "https://github.com/PermafrostDiscoveryGateway/viz-staging.git", branch = "develop" }
 pydantic = "1.10.9"
 
 [tool.poetry.group.dev.dependencies]
