@@ -17,7 +17,7 @@ Steps:
 3. Start up a virtual environment
    ```bash
    python3 -m venv .venv
-   source venv/bin/activate
+   source .venv/bin/activate
    ```
 4. Install the package in development mode
    ```bash
@@ -25,11 +25,8 @@ Steps:
    ```
    - **Note**: You might need to install `libspatialindex` or
    `libspatialindex-dev` on your system if you have not already done so.
-5. Install `pdgstaging` from github: (not included as a requirement in the package yet)
-    ```bash
-    pip install git+https://github.com/PermafrostDiscoveryGateway/viz-staging
-    ```
+   - **Note**: You may also need to install `pdgstaging` from github: `pip install git+https://github.com/PermafrostDiscoveryGateway/viz-staging`
 6. Run the example
    ```bash
-   python minimal_example.py
+   python make-rasters.py
    ```
