@@ -31,5 +31,5 @@ Steps:
     ```
 6. Run the example
    ```bash
-   python minimal_example.py
+   python make-rasters.py
    ```
