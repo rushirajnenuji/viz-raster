@@ -25,10 +25,7 @@ Steps:
    ```
    - **Note**: You might need to install `libspatialindex` or
    `libspatialindex-dev` on your system if you have not already done so.
-5. Install `pdgstaging` from github: (not included as a requirement in the package yet)
-    ```bash
-    pip install git+https://github.com/PermafrostDiscoveryGateway/viz-staging
-    ```
+   - **Note**: You may also need to install `pdgstaging` from github: `pip install git+https://github.com/PermafrostDiscoveryGateway/viz-staging`
 6. Run the example
    ```bash
    python make-rasters.py
