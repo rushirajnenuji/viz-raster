@@ -1,0 +1,169 @@
+{
+    "version": null,
+    "dir_geotiff": "geotiff",
+    "dir_web_tiles": "web_tiles",
+    "dir_3dtiles": "3dtiles",
+    "dir_staged": "staged",
+    "dir_input": "input",
+    "dir_footprints": "footprints",
+    "filename_staging_summary": "staging_summary.csv",
+    "filename_rasterization_events": "rasterization_events.csv",
+    "filename_rasters_summary": "rasters_summary.csv",
+    "filename_config": "config.json",
+    "ext_web_tiles": ".png",
+    "ext_input": ".shp",
+    "ext_staged": ".gpkg",
+    "ext_footprints": ".gpkg",
+    "prop_centroid_x": "staging_centroid_x",
+    "prop_centroid_y": "staging_centroid_y",
+    "prop_area": "staging_area",
+    "prop_tile": "staging_tile",
+    "prop_centroid_tile": "staging_centroid_tile",
+    "prop_filename": "staging_filename",
+    "prop_identifier": "staging_identifier",
+    "prop_centroid_within_tile": "staging_centroid_within_tile",
+    "prop_duplicated": "staging_duplicated",
+    "input_crs": null,
+    "simplify_tolerance": 0.0001,
+    "tms_id": "WorldCRS84Quad",
+    "tile_path_structure": [
+        "style",
+        "tms",
+        "z",
+        "x",
+        "y"
+    ],
+    "z_range": [
+        0,
+        13
+    ],
+    "tile_size": [
+        256,
+        256
+    ],
+    "statistics": [
+        {
+            "name": "polygon_count",
+            "weight_by": "count",
+            "property": "centroids_per_pixel",
+            "aggregation_method": "sum",
+            "resampling_method": "sum",
+            "val_range": [
+                0,
+                null
+            ],
+            "nodata_val": 0,
+            "nodata_color": "#ffffff00",
+            "z_config": {
+                "0": {
+                    "val_range": [
+                        null,
+                        6200.999999976127
+                    ]
+                },
+                "1": {
+                    "val_range": [
+                        null,
+                        6200.999999969955
+                    ]
+                },
+                "2": {
+                    "val_range": [
+                        null,
+                        6200.999999972334
+                    ]
+                },
+                "3": {
+                    "val_range": [
+                        null,
+                        6200.999999936954
+                    ]
+                },
+                "4": {
+                    "val_range": [
+                        null,
+                        6200.99999987524
+                    ]
+                },
+                "5": {
+                    "val_range": [
+                        null,
+                        1693.9999999645554
+                    ]
+                },
+                "6": {
+                    "val_range": [
+                        null,
+                        512.999999984138
+                    ]
+                },
+                "7": {
+                    "val_range": [
+                        null,
+                        154.9999999992782
+                    ]
+                },
+                "8": {
+                    "val_range": [
+                        null,
+                        57.99999999507372
+                    ]
+                },
+                "9": {
+                    "val_range": [
+                        null,
+                        24.999999998264727
+                    ]
+                },
+                "10": {
+                    "val_range": [
+                        null,
+                        10.999999998264483
+                    ]
+                },
+                "11": {
+                    "val_range": [
+                        null,
+                        4.999999997238149
+                    ]
+                },
+                "12": {
+                    "val_range": [
+                        null,
+                        2.0
+                    ]
+                },
+                "13": {
+                    "val_range": [
+                        null,
+                        1.0
+                    ]
+                }
+            }
+        },
+        {
+            "name": "coverage",
+            "weight_by": "area",
+            "property": "area_per_pixel_area",
+            "aggregation_method": "sum",
+            "resampling_method": "average",
+            "val_range": [
+                0,
+                1
+            ],
+            "nodata_val": 0,
+            "nodata_color": "#ffffff00"
+        }
+    ],
+    "geometricError": null,
+    "z_coord": 0,
+    "deduplicate_at": null,
+    "deduplicate_method": null,
+    "deduplicate_keep_rules": [],
+    "deduplicate_overlap_tolerance": 0.5,
+    "deduplicate_overlap_both": true,
+    "deduplicate_centroid_tolerance": null,
+    "deduplicate_distance_crs": "EPSG:3857",
+    "deduplicate_clip_to_footprint": true,
+    "deduplicate_clip_method": "intersects"
+}
