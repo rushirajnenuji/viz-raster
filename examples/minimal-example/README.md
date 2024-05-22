@@ -17,7 +17,7 @@ Steps:
 3. Start up a virtual environment
    ```bash
    python3 -m venv .venv
-   source venv/bin/activate
+   source .venv/bin/activate
    ```
 4. Install the package in development mode
    ```bash
