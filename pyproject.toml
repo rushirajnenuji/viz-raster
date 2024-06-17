@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pdgraster"
-version = "0.9.2"
+version = "0.9.3"
 description = "Geospatial data rasterization workflow"
 authors = [
     "Robyn Thiessen-Bock <thiessenbock@nceas.ucsb.edu>",
@@ -29,8 +29,9 @@ morecantile = ">= 3.1, < 4.0"
 Rtree = ">= 0.9, < 1.0"
 coloraide = ">= 0.10, < 1"
 colormaps = "== 0.4.0"
-Pillow = ">= 9, < 10"
+Pillow = ">= 9"
 rasterio = ">= 1.2, < 2"
+pdgstaging = { git = "https://github.com/PermafrostDiscoveryGateway/viz-staging.git", branch = "develop" }
 pydantic = "1.10.9"
 
 [tool.poetry.group.dev.dependencies]
