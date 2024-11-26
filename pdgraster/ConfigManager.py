@@ -6,7 +6,6 @@ import warnings
 import colormaps as cmaps
 from coloraide import Color
 
-from .Deduplicator import deduplicate_by_footprint, deduplicate_neighbors
 from .TilePathManager import TilePathManager
 
 class ConfigManager:
@@ -1308,9 +1307,9 @@ class ConfigManager:
         """
         method = self.get("deduplicate_method")
         if method == "neighbor":
-            return deduplicate_neighbors
+            return method
         if method == "footprints":
-            return deduplicate_by_footprint
+            return method
         return None
 
     def footprint_path_from_input(self, path, check_exists=False):
