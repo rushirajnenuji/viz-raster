@@ -1,38 +1,30 @@
-
 import logging
 import logging.config
 
-import pdgstaging  # For staging
 import pdgraster
 
+import pdgstaging  # For staging
+
 log_dict = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'standard': {
-            'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {"format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"},
+    },
+    "handlers": {
+        "default": {
+            "level": "INFO",
+            "formatter": "standard",
+            "class": "logging.StreamHandler",
+        },
+        "file_handler": {
+            "level": "INFO",
+            "filename": "example/viz-raster-example.log",
+            "class": "logging.FileHandler",
+            "formatter": "standard",
         },
     },
-    'handlers': {
-        'default': {
-            'level': 'INFO',
-            'formatter': 'standard',
-            'class': 'logging.StreamHandler',
-        },
-        'file_handler': {
-            'level': 'INFO',
-            'filename': 'example/viz-raster-example.log',
-            'class': 'logging.FileHandler',
-            'formatter': 'standard'
-        }
-    },
-    'loggers': {
-        '': {
-            'handlers': ['file_handler'],
-            'level': 'INFO',
-            'propagate': True
-        }
-    }
+    "loggers": {"": {"handlers": ["file_handler"], "level": "INFO", "propagate": True}},
 }
 
 logging.config.dictConfig(log_dict)
@@ -45,41 +37,39 @@ logging.config.dictConfig(log_dict)
 # polygons. This config could also be a JSON file, and the path could be passed
 # to RasterTiler.
 my_config = {
-    'tms_id': 'WorldCRS84Quad',
-    'tile_path_structure': ['style', 'tms', 'z', 'x', 'y'],
-    'dir_input': 'example/input-data',
+    "tms_id": "WorldCRS84Quad",
+    "tile_path_structure": ["style", "tms", "z", "x", "y"],
+    "dir_input": "example/input-data",
     # input: tiled vector files created by viz-staging
-    'dir_staged': 'example/staged-vectors',
+    "dir_staged": "example/staged-vectors",
     # output: where the GeoTIFFs and web tiles should be saved
-    'dir_geotiff': 'example/geotiffs',
-    'dir_web_tiles': 'example/web-tiles',
-    'filename_staging_summary': 'example/staging-summary.csv',
-    'ext_input': '.shp',
-    'ext_web_tiles': '.png',
-    'z_range': (6, 13),
-    'tile_size': (128, 128),
-    'statistics': [
+    "dir_geotiff": "example/geotiffs",
+    "dir_web_tiles": "example/web-tiles",
+    "filename_staging_summary": "example/staging-summary.csv",
+    "ext_input": ".shp",
+    "ext_web_tiles": ".png",
+    "z_range": (6, 13),
+    "tile_size": (128, 128),
+    "statistics": [
         {
-            'name': 'iwp_count',
-            'weight_by': 'count',
-            'property': 'centroids_per_pixel',
-            'aggregation_method': 'sum',
-            'resampling_method': 'sum',
-            'val_range': [0, None],
-            'palette': [
-                'rgb(102 51 153 / 0.1)', '#d93fce', 'lch(85% 100 85)'
-            ]
+            "name": "iwp_count",
+            "weight_by": "count",
+            "property": "centroids_per_pixel",
+            "aggregation_method": "sum",
+            "resampling_method": "sum",
+            "val_range": [0, None],
+            "palette": ["rgb(102 51 153 / 0.1)", "#d93fce", "lch(85% 100 85)"],
         },
         {
-            'name': 'iwp_coverage',
-            'weight_by': 'area',
-            'property': 'area_per_pixel_area',
-            'aggregation_method': 'sum',
-            'resampling_method': 'average',
-            'val_range': [0, 1],
-            'palette': ['rgb(102 51 153 / 0.1)', 'lch(85% 100 85)']
-        }
-    ]
+            "name": "iwp_coverage",
+            "weight_by": "area",
+            "property": "area_per_pixel_area",
+            "aggregation_method": "sum",
+            "resampling_method": "average",
+            "val_range": [0, 1],
+            "palette": ["rgb(102 51 153 / 0.1)", "lch(85% 100 85)"],
+        },
+    ],
 }
 
 
@@ -108,9 +98,9 @@ events = tiler.get_events(as_df=True)
 
 # Compare the average amount of time to create geotiffs from vectors, to create
 # geotiffs from child geotiffs, and to create web tiles from geotiffs.
-events.groupby('type').agg({'total_time': 'mean'})
+events.groupby("type").agg({"total_time": "mean"})
 
 # See the total number of polygons from Tile(x=1418, y=908, z=13)
 tile_of_interest = tiler.tiles.tile(x=1418, y=908, z=13)
-info_about_tile = events[events['tile'] == tile_of_interest]
-info_about_tile['raster_summary'][0]['iwp_count']['sum']
+info_about_tile = events[events["tile"] == tile_of_interest]
+info_about_tile["raster_summary"][0]["iwp_count"]["sum"]
