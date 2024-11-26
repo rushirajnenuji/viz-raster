@@ -1,4 +1,3 @@
-import logging
 import os
 import time
 import uuid
@@ -6,12 +5,7 @@ import uuid
 import geopandas as gpd
 import pandas as pd
 
-import pdgstaging
-
-from . import Palette, Raster, WebImage, logging_config
-
-logger = logging_config.logger
-
+from . import Palette, Raster, WebImage, ConfigManager, TilePathManager
 
 class RasterTiler:
     """
@@ -33,9 +27,11 @@ class RasterTiler:
             JSON file.
         """
 
-        self.config = pdgstaging.ConfigManager(config)
-        self.tiles = pdgstaging.TilePathManager(**self.config.get_path_manager_config())
+        self.config = ConfigManager(config)
+        self.tiles = TilePathManager(**self.config.get_path_manager_config())
         # Pre-create the palette for each stat
+
+        self.logger = self.config.get_logger()
         palettes = self.config.get_palettes()
         self.palettes = [Palette(*pal) for pal in palettes]
 
@@ -120,7 +116,7 @@ class RasterTiler:
         # Track the parent tiles to make for each of the lowest level tiles
         parent_tiles = set()
 
-        logger.info(
+        self.logger.info(
             f"Beginning rasterization of {len(paths)} vector files at z-level" f" {z}."
         )
 
@@ -133,7 +129,7 @@ class RasterTiler:
             if tile is not None:
                 parent_tiles.add(self.tiles.get_parent_tile(tile))
 
-        logger.info(f"Finished rasterization of {len(paths)} vector files.")
+        self.logger.info(f"Finished rasterization of {len(paths)} vector files.")
 
         # Create the web tiles for the parent tiles.
         if make_parents:
@@ -175,7 +171,7 @@ class RasterTiler:
             out_path = self.tiles.path_from_tile(tile, "geotiff")
 
             if os.path.isfile(out_path) and not overwrite:
-                logger.info(
+                self.logger.info(
                     f"Skip rasterizing {path} for tile {tile}." " Tile already exists."
                 )
                 return None
@@ -206,7 +202,7 @@ class RasterTiler:
             # Track and log the end of the event
             message = f"Rasterization for tile {tile} complete."
             self.__end_tracking(id, raster=raster, tile=tile, message=message)
-            logger.info(f"Complete rasterization of tile {tile} to {out_path}.")
+            self.logger.info(f"Complete rasterization of tile {tile} to {out_path}.")
 
             return tile
 
@@ -256,14 +252,14 @@ class RasterTiler:
         # Get the parent tiles from the current set of tiles.
         parent_tiles = set()
 
-        logger.info(f"Start creating {len(tiles)} parent geotiffs at level {z}.")
+        self.logger.info(f"Start creating {len(tiles)} parent geotiffs at level {z}.")
 
         for tile in tiles:
             new_tile = self.parent_geotiff_from_children(tile, overwrite=overwrite)
             if new_tile is not None:
                 parent_tiles.add(self.tiles.get_parent_tile(new_tile))
 
-        logger.info(f"Finished creating {len(tiles)} parent geotiffs at level {z}.")
+        self.logger.info(f"Finished creating {len(tiles)} parent geotiffs at level {z}.")
 
         # Create the web tiles for the parent tiles.
         if recursive:
@@ -296,7 +292,7 @@ class RasterTiler:
 
             out_path = self.tiles.path_from_tile(tile, base_dir="geotiff")
             if os.path.isfile(out_path) and not overwrite:
-                logger.info(
+                self.logger.info(
                     f"Skip making parent GeoTIFF tile {tile}." " Tile already exists."
                 )
                 return None
@@ -325,7 +321,7 @@ class RasterTiler:
             return tile
 
         except Exception as e:
-            logger.error(e)
+            self.logger.error(e)
             message = f"Error creating parent geotiff for tile {tile}."
             self.__end_tracking(id, tile=tile, error=e, message=message)
             return None
@@ -379,12 +375,12 @@ class RasterTiler:
         if update_ranges:
             self.update_ranges()
 
-        logger.info(f"Beginning creation of {len(geotiff_paths)} web tiles")
+        self.logger.info(f"Beginning creation of {len(geotiff_paths)} web tiles")
 
         for geotiff_path in geotiff_paths:
             self.webtile_from_geotiff(geotiff_path, overwrite=overwrite)
 
-        logger.info(f"Finished creating {len(geotiff_paths)} web tiles.")
+        self.logger.info(f"Finished creating {len(geotiff_paths)} web tiles.")
 
     def webtile_from_geotiff(self, geotiff_path, overwrite=True):
         """
@@ -428,7 +424,7 @@ class RasterTiler:
                     tile, base_dir="web_tiles", style=stat
                 )
                 if os.path.isfile(output_path) and not overwrite:
-                    logger.info(
+                    self.logger.info(
                         f"Skip creating web tile for tile {tile} and "
                         f"stat {stat}. Web tile already exists at "
                         f"{output_path}"
@@ -549,7 +545,7 @@ class RasterTiler:
         """
 
         if message:
-            logger.info(message)
+            self.logger.info(message)
 
         start_time = time.time()
         id = str(uuid.uuid4())
@@ -588,10 +584,10 @@ class RasterTiler:
 
         if message:
             if error:
-                logger.error(message)
-                logger.error(error)
+                self.logger.error(message)
+                self.logger.error(error)
             else:
-                logger.info(message)
+                self.logger.info(message)
 
         total_time = None
         end_time = time.time()

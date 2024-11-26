@@ -1,14 +1,7 @@
-import logging
 import os
-import time
-import uuid
-
 import numpy as np
 from PIL import Image
-
-from . import Palette, logging_config
-
-logger = logging_config.logger
+from . import Palette
 
 
 class WebImage:
